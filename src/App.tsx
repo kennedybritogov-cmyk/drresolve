@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { supabase } from "./lib/supabase";
 import {
   Activity, ArrowDownRight, ArrowUpRight, Bell, CalendarDays,
   CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList,
   Clock3, CreditCard, FileText, LayoutDashboard, Menu, Monitor,
   Package, Plus, Printer, Search, Settings, ShoppingBag, TrendingUp,
-  Users, Wallet, Wrench, X, Box, Target, CircleDollarSign
+  Users, Wallet, Wrench, X, Box, Target, CircleDollarSign, LogOut
 } from "lucide-react";
 
 type PageKey = "dashboard" | "pdv" | "ordens" | "producao" | "clientes" | "relatorios" | "configuracoes";
@@ -27,7 +29,69 @@ const initialOrders = [
 
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+
 function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    if (!supabase) {
+      setCheckingSession(false);
+      return;
+    }
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setCheckingSession(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (!supabase) {
+    return <AuthShell><div className="auth-card"><div className="auth-mark"><Wrench size={25}/></div><h1>Doutor <span>Resolve</span></h1><p>Configuração do banco pendente.</p><div className="auth-alert">A conexão segura ainda não foi configurada no Netlify. As variáveis VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY precisam ser adicionadas antes do login.</div></div></AuthShell>;
+  }
+  if (checkingSession) {
+    return <AuthShell><div className="auth-card"><div className="auth-mark"><Wrench size={25}/></div><p>Verificando acesso seguro...</p></div></AuthShell>;
+  }
+  if (!session) return <LoginScreen />;
+  return <DashboardApp email={session.user.email ?? "Usuário"} />;
+}
+
+function AuthShell({ children }: { children: React.ReactNode }) {
+  return <div className="auth-shell"><div className="auth-brand"><div className="auth-mark"><Wrench size={25}/></div><div><strong>DOUTOR <em>RESOLVE</em></strong><small>TECH · GESTÃO INTELIGENTE</small></div></div>{children}<p className="auth-foot">A resolução do seu problema.</p></div>;
+}
+
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+    setBusy(true);
+    setError("");
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (authError) setError("Não foi possível entrar. Confira o e-mail e a senha ou verifique se o usuário já foi criado no Supabase.");
+    setBusy(false);
+  }
+
+  return <AuthShell><form className="auth-card" onSubmit={handleSubmit}>
+    <div className="auth-mark"><Wrench size={25}/></div>
+    <h1>Bem-vindo de <span>volta!</span></h1>
+    <p>Entre com seu e-mail e senha para acessar o sistema.</p>
+    <label className="auth-field">E-mail<input type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com"/></label>
+    <label className="auth-field">Senha<input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Sua senha"/></label>
+    {error && <div className="auth-error" role="alert">{error}</div>}
+    <button className="auth-submit" disabled={busy}>{busy ? "Entrando..." : "Entrar"}</button>
+    <small className="auth-note">Acesso restrito a usuários cadastrados.</small>
+  </form></AuthShell>;
+}
+
+function DashboardApp({ email }: { email: string }) {
   const [page, setPage] = useState<PageKey>("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -76,7 +140,7 @@ function App() {
           <button className={`nav-item ${page === "configuracoes" ? "active" : ""}`} onClick={() => changePage("configuracoes")}><Settings size={19}/><span>Configurações</span></button>
           <div className="help-card"><div className="help-icon"><Activity size={17}/></div><strong>Precisa de ajuda?</strong><p>Organize sua operação em um só lugar.</p><button onClick={() => setNotice("Central de ajuda estará disponível em uma próxima atualização.")}>Saiba mais <ChevronRight size={14}/></button></div>
           <div className="profile">
-            <div className="avatar">DR</div><div className="profile-info"><strong>Administrador</strong><span>Conta de demonstração</span></div><button className="icon-button" aria-label="Opções do perfil"><ChevronDown size={17}/></button>
+            <div className="avatar">DR</div><div className="profile-info"><strong>{email}</strong><span>Usuário autenticado</span></div><button className="icon-button" aria-label="Sair" title="Sair" onClick={() => void supabase?.auth.signOut()}><LogOut size={17}/></button>
           </div>
         </div>
       </aside>
@@ -84,7 +148,7 @@ function App() {
       <main className="main-area">
         <header className="topbar">
           <div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu size={21}/></button><div className="breadcrumb">Painel <ChevronRight size={14}/><strong>{activeNav?.label ?? "Configurações"}</strong></div></div>
-          <div className="topbar-actions"><div className="system-status"><span/> Sistema de demonstração</div><button className="icon-button notification-button" aria-label="Notificações"><Bell size={19}/><i/></button><div className="top-avatar">DR</div></div>
+          <div className="topbar-actions"><div className="system-status"><span/> Sistema conectado</div><button className="icon-button notification-button" aria-label="Notificações"><Bell size={19}/><i/></button><div className="top-avatar">DR</div></div>
         </header>
 
         <div className="content">
