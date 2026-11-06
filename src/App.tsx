@@ -9,7 +9,7 @@ import {
   Users, Wallet, Wrench, X, Box, Target, CircleDollarSign, LogOut
 } from "lucide-react";
 
-type PageKey = "dashboard" | "pdv" | "ordens" | "producao" | "clientes" | "relatorios" | "configuracoes";
+type PageKey = "dashboard" | "pdv" | "ordens" | "producao" | "clientes" | "catalogo" | "relatorios" | "configuracoes";
 
 const navigation: { key: PageKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: "dashboard", label: "Visão geral", icon: LayoutDashboard },
@@ -17,6 +17,7 @@ const navigation: { key: PageKey; label: string; icon: typeof LayoutDashboard }[
   { key: "ordens", label: "Ordens de serviço", icon: ClipboardList },
   { key: "producao", label: "Produção gráfica", icon: Printer },
   { key: "clientes", label: "Clientes", icon: Users },
+  { key: "catalogo", label: "Produtos e serviços", icon: Package },
   { key: "relatorios", label: "Relatórios", icon: TrendingUp },
 ];
 
@@ -177,7 +178,7 @@ function DashboardApp({ email }: { email: string }) {
           {page === "pdv" && <CashRegisterPage />}
           {page === "ordens" && <OrdersPage orders={filteredOrders} search={search} setSearch={setSearch} onNew={() => setShowNewOrder(true)} />}
           {page === "producao" && <ProductionPage orders={orders.filter((o) => o.category === "Serviços gráficos")} />}
-          {page === "clientes" && <CustomersPage />}
+          {page === "clientes" && <CustomersPage />}\n          {page === "catalogo" && <CatalogPage />}
           {page === "relatorios" && <ReportsPage />}
           {page === "configuracoes" && <GenericPage title="Configurações" subtitle="Personalize os dados e as preferências do Doutor Resolve Tech." icon={<Settings/>}><div className="settings-list"><div><strong>Dados da empresa</strong><span>Nome, slogan e informações comerciais</span><ChevronRight/></div><div><strong>Metas de faturamento</strong><span>Defina objetivos diários, semanais e mensais</span><ChevronRight/></div><div><strong>Usuários e acessos</strong><span>Dois usuários com permissões iguais</span><ChevronRight/></div><div><strong>Formas de pagamento</strong><span>Configure dinheiro, PIX, cartão e outros</span><ChevronRight/></div></div></GenericPage>}
         </div>
@@ -852,6 +853,24 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy ? "Salvando..." : "Criar ordem de serviço"}</button></div>
     </form>
   </Modal>;
+}
+
+function CatalogPage(){
+ type Item={id:string;name:string;description:string|null;category:string;unit_price:number;is_active:boolean};
+ const [items,setItems]=useState<Item[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState("");const [search,setSearch]=useState("");const [showForm,setShowForm]=useState(false);const [editing,setEditing]=useState<Item|null>(null);
+ const [name,setName]=useState("");const [description,setDescription]=useState("");const [category,setCategory]=useState("product");const [price,setPrice]=useState("0");const [busy,setBusy]=useState(false);
+ async function load(){if(!supabase)return;setLoading(true);const {data,error:err}=await supabase.from("catalog_items").select("id,name,description,category,unit_price,is_active").order("name");if(err)setError("Não foi possível carregar o catálogo: "+err.message);else setItems((data??[]) as Item[]);setLoading(false);}
+ useEffect(()=>{void load();},[]);
+ function open(item?:Item){setEditing(item??null);setName(item?.name??"");setDescription(item?.description??"");setCategory(item?.category??"product");setPrice(String(item?.unit_price??0));setShowForm(true);}
+ async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;const value=Number(price);if(!name.trim()||!Number.isFinite(value)||value<0){setError("Informe nome e preço válido.");return;}setBusy(true);setError("");const payload={name:name.trim(),description:description.trim()||null,category,unit_price:value,is_active:true,updated_at:new Date().toISOString()};const result=editing?await supabase.from("catalog_items").update(payload).eq("id",editing.id):await supabase.from("catalog_items").insert(payload);if(result.error)setError("Falha ao salvar: "+result.error.message);else{setShowForm(false);await load();}setBusy(false);}
+ async function toggle(item:Item){if(!supabase)return;const {error:err}=await supabase.from("catalog_items").update({is_active:!item.is_active,updated_at:new Date().toISOString()}).eq("id",item.id);if(err)setError("Não foi possível alterar o item: "+err.message);else await load();}
+ const filtered=items.filter(i=>[i.name,i.description??"",i.category].join(" ").toLowerCase().includes(search.toLowerCase()));
+ const categoryLabel=(c:string)=>({product:"Produto",graphic:"Serviço gráfico",maintenance:"Manutenção",printing_3d:"Impressão 3D",other:"Outro"} as Record<string,string>)[c]??c;
+ return <><div className="page-heading"><div><div className="eyebrow">CADASTRO COMERCIAL</div><h1>Produtos e <span>serviços</span></h1><p>Gerencie os itens disponíveis para selecionar no PDV.</p></div><button className="primary-button" onClick={()=>open()}><Plus size={16}/> Novo item</button></div>
+ <section className="panel customers-panel"><div className="customers-toolbar"><div><strong>{items.filter(i=>i.is_active).length}</strong><span> itens ativos no catálogo</span></div><label className="search-box"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar produto ou serviço"/></label></div>
+ {error&&<div className="auth-error">{error}</div>}{loading?<div className="empty-state">Carregando catálogo...</div>:<div className="table-wrap"><table><thead><tr><th>NOME</th><th>CATEGORIA</th><th>PREÇO</th><th>STATUS</th><th>AÇÕES</th></tr></thead><tbody>{filtered.map(item=><tr key={item.id}><td><strong>{item.name}</strong>{item.description&&<small>{item.description}</small>}</td><td>{categoryLabel(item.category)}</td><td className="table-value">{money(Number(item.unit_price))}</td><td>{item.is_active?"Ativo":"Inativo"}</td><td><div className="customer-actions"><button onClick={()=>open(item)}>Editar</button><button onClick={()=>void toggle(item)}>{item.is_active?"Desativar":"Ativar"}</button></div></td></tr>)}</tbody></table>{filtered.length===0&&<div className="empty-state">Nenhum item cadastrado. Adicione produtos e serviços para usá-los no PDV.</div>}</div>}</section>
+ {showForm&&<Modal title={editing?"Editar item":"Novo produto ou serviço"} onClose={()=>setShowForm(false)}><form onSubmit={save}><label className="auth-field">Nome<input required maxLength={150} value={name} onChange={e=>setName(e.target.value)} placeholder="Ex.: Cartão de visita, manutenção"/></label><label className="auth-field">Descrição<textarea rows={2} value={description} onChange={e=>setDescription(e.target.value)}/></label><div className="customer-form-grid"><label className="auth-field">Categoria<select value={category} onChange={e=>setCategory(e.target.value)}><option value="product">Produto</option><option value="graphic">Serviço gráfico</option><option value="maintenance">Manutenção</option><option value="printing_3d">Impressão 3D</option><option value="other">Outro</option></select></label><label className="auth-field">Preço padrão (R$)<input required type="number" min="0" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={()=>setShowForm(false)}>Cancelar</button><button className="primary-button" disabled={busy}>{busy?"Salvando...":"Salvar item"}</button></div></form></Modal>}
+ </>;
 }
 
 function ReportsPage(){
