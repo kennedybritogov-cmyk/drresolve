@@ -223,25 +223,26 @@ function ProductionPage({ orders }: { orders: typeof initialOrders }) {
 
 function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
  type CatalogItem={id:string;name:string;description:string|null;category:string;unit_price:number};
- const [items,setItems]=useState<CatalogItem[]>([]);
+ type CustomerOption={id:string;name:string;phone:string|null};
+ const [items,setItems]=useState<CatalogItem[]>([]); const [customers,setCustomers]=useState<CustomerOption[]>([]); const [customerId,setCustomerId]=useState("");
  const [selected,setSelected]=useState("");
  const [manual,setManual]=useState(true);
  const [description,setDescription]=useState("");
  const [qty,setQty]=useState("1"); const [price,setPrice]=useState(""); const [discount,setDiscount]=useState("0");
  const [method,setMethod]=useState("cash"); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
- useEffect(()=>{let active=true;async function loadItems(){if(!supabase)return;const {data}=await supabase.from("catalog_items").select("id,name,description,category,unit_price").eq("is_active",true).order("name");if(active)setItems((data??[]) as CatalogItem[]);}void loadItems();return()=>{active=false;};},[]);
+ useEffect(()=>{let active=true;async function loadItems(){if(!supabase)return;const [{data},{data:customerData}]=await Promise.all([supabase.from("catalog_items").select("id,name,description,category,unit_price").eq("is_active",true).order("name"),supabase.from("customers").select("id,name,phone").eq("is_active",true).order("name")]);if(active){setItems((data??[]) as CatalogItem[]);setCustomers((customerData??[]) as CustomerOption[]);}}void loadItems();return()=>{active=false;};},[]);
  const total=Math.max(0,Number(qty||0)*Number(price||0)-Number(discount||0));
  function chooseItem(id:string){setSelected(id);const item=items.find(x=>x.id===id);if(item){setManual(false);setDescription(item.name);setPrice(String(item.unit_price));}}
  async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;if(!description.trim()||Number(qty)<=0||Number(price)<=0||Number(discount)<0||total<=0){setError("Confira a descrição, quantidade, preço e desconto.");return;}setBusy(true);setError("");
  const {data:reg,error:re}=await supabase.from("cash_registers").select("id").eq("status","open").maybeSingle();if(re||!reg){setError("Não há caixa aberto. Abra o caixa antes de vender.");setBusy(false);return;}
  const {data:user}=await supabase.auth.getUser();
- const {data:sale,error:se}=await supabase.from("sales").insert({cash_register_id:reg.id,status:"paid",subtotal:Number(qty)*Number(price),discount:Number(discount||0),total,created_by:user.user?.id??null}).select("id").single();
+ const {data:sale,error:se}=await supabase.from("sales").insert({cash_register_id:reg.id,customer_id:customerId||null,status:"paid",subtotal:Number(qty)*Number(price),discount:Number(discount||0),total,created_by:user.user?.id??null}).select("id").single();
  if(se||!sale){setError("Não foi possível registrar a venda: "+(se?.message??"erro desconhecido"));setBusy(false);return;}
  const {error:ie}=await supabase.from("sale_items").insert({sale_id:sale.id,catalog_item_id:manual?null:(selected||null),description:description.trim(),quantity:Number(qty),unit_price:Number(price),discount:Number(discount||0)});
  if(ie){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar item."}).eq("id",sale.id);setError("Falha ao salvar o item: "+ie.message);setBusy(false);return;}
  const {error:pe}=await supabase.from("sale_payments").insert({sale_id:sale.id,method,amount:total,status:"confirmed",paid_at:new Date().toISOString()});
  if(pe){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar pagamento."}).eq("id",sale.id);setError("Falha ao salvar o pagamento: "+pe.message);setBusy(false);return;}setBusy(false);onSaved();}
- return <Modal title="PDV — Registrar venda" onClose={onClose}><form onSubmit={save}><p className="modal-copy">Selecione um item do catálogo ou digite um serviço avulso. A venda será vinculada ao caixa aberto.</p>
+ return <Modal title="PDV — Registrar venda" onClose={onClose}><form onSubmit={save}><p className="modal-copy">Selecione um cliente (opcional), escolha um item do catálogo ou digite um serviço avulso. A venda será vinculada ao caixa aberto.</p>\n {customers.length>0&&<label className="auth-field">Cliente (opcional)<select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Venda sem cliente identificado</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}{c.phone?" — "+c.phone:""}</option>)}</select></label>}
  {items.length>0&&<label className="auth-field">Selecionar produto ou serviço cadastrado<select value={selected} onChange={e=>chooseItem(e.target.value)}><option value="">Escolher no catálogo...</option>{items.map(item=><option key={item.id} value={item.id}>{item.name} — {money(Number(item.unit_price))}</option>)}</select></label>}
  <div style={{display:"flex",gap:8,alignItems:"center",margin:"12px 0"}}><button type="button" className={manual?"primary-button":"secondary-button"} onClick={()=>{setManual(true);setSelected("");setDescription("");setPrice("");}}>Digitar serviço</button>{items.length>0&&<button type="button" className={!manual?"primary-button":"secondary-button"} onClick={()=>setManual(false)}>Usar catálogo</button>}</div>
  <label className="auth-field">Descrição do produto ou serviço<input required value={description} onChange={e=>{setDescription(e.target.value);setManual(true);setSelected("");}} placeholder="Digite o serviço ou produto"/></label>
