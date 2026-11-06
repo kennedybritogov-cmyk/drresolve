@@ -906,7 +906,7 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
       {error && <div className="auth-error" role="alert">{error}</div>}
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy ? "Salvando..." : "Criar ordem de serviço"}</button></div>
     </form>
-  </Modal>;
+  </div></div>;
 }
 
 function SettingsPage(){
