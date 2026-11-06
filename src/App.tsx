@@ -641,10 +641,11 @@ function CustomersPage() {
     [customer.name, customer.phone ?? "", customer.email ?? "", customer.cpf ?? ""].join(" ").toLowerCase().includes(search.toLowerCase())
   );
 
+  const [showProfile,setShowProfile] = useState(false);
   return <>
     <div className="page-heading">
       <div><div className="eyebrow">RELACIONAMENTO</div><h1>Cadastro de <span>clientes</span></h1><p>Cadastre e consulte os clientes compartilhados entre os usuários.</p></div>
-      <button className="primary-button" onClick={openNew}><Plus size={16}/> Novo cliente</button>
+      <div className="heading-actions"><button className="secondary-button" onClick={()=>setShowProfile(true)}><FileText size={16}/> Cliente CR / Posse / Porte</button><button className="primary-button" onClick={openNew}><Plus size={16}/> Novo cliente</button></div>
     </div>
     <section className="panel customers-panel">
       <div className="customers-toolbar">
@@ -677,7 +678,18 @@ function CustomersPage() {
     </Modal>}
   </>;
 }
+    {showProfile && <CustomerProfileModal customers={customers} onClose={()=>setShowProfile(false)} onSaved={()=>{setShowProfile(false);setError("");}}/>}
 
+
+
+function CustomerProfileModal({customers,onClose,onSaved}:{customers:Customer[];onClose:()=>void;onSaved:()=>void}){
+ const [customerId,setCustomerId]=useState("");const [profile,setProfile]=useState<any>({birth_date:"",rg:"",rg_issued_on:"",rg_issuer:"",voter_registration:"",father_name:"",mother_name:"",postal_code:"",education:"",profession:"",marital_status:"",nationality:"Brasileira",consent_recorded:false});const [busy,setBusy]=useState(false);const [error,setError]=useState("");
+ useEffect(()=>{let active=true;async function load(){if(!supabase||!customerId)return;const {data,error:err}=await supabase.from("customer_firearm_profiles").select("*").eq("customer_id",customerId).maybeSingle();if(active){if(err)setError("Não foi possível carregar o perfil complementar.");else if(data)setProfile((old:any)=>({...old,...data}));}}void load();return()=>{active=false};},[customerId]);
+ async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase||!customerId){setError("Selecione um cliente.");return;}setBusy(true);setError("");const {error:err}=await supabase.from("customer_firearm_profiles").upsert({...profile,customer_id:customerId,consent_recorded_at:profile.consent_recorded?(profile.consent_recorded_at||new Date().toISOString()):null,updated_at:new Date().toISOString()},{onConflict:"customer_id"});if(err){setError("Não foi possível salvar: "+err.message);setBusy(false);return;}setBusy(false);onSaved();}
+ const set=(key:string,value:any)=>setProfile((old:any)=>({...old,[key]:value}));
+ return <Modal title="Cadastro complementar — CR / Posse / Porte" onClose={onClose}><form onSubmit={save}><label className="auth-field wide">Cliente<select required value={customerId} onChange={e=>{setCustomerId(e.target.value);setProfile({nationality:"Brasileira",consent_recorded:false});}}><option value="">Selecione um cliente cadastrado</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name} — {c.cpf||c.phone||"sem documento"}</option>)}</select></label><div className="customer-form-grid">
+ <label className="auth-field">Data de nascimento<input type="date" value={profile.birth_date||""} onChange={e=>set("birth_date",e.target.value)}/></label><label className="auth-field">RG<input value={profile.rg||""} onChange={e=>set("rg",e.target.value)}/></label><label className="auth-field">Expedição do RG<input type="date" value={profile.rg_issued_on||""} onChange={e=>set("rg_issued_on",e.target.value)}/></label><label className="auth-field">Órgão emissor<input value={profile.rg_issuer||""} onChange={e=>set("rg_issuer",e.target.value)}/></label><label className="auth-field">Título de eleitor<input value={profile.voter_registration||""} onChange={e=>set("voter_registration",e.target.value)}/></label><label className="auth-field">Nome do pai<input value={profile.father_name||""} onChange={e=>set("father_name",e.target.value)}/></label><label className="auth-field">Nome da mãe<input value={profile.mother_name||""} onChange={e=>set("mother_name",e.target.value)}/></label><label className="auth-field">CEP<input value={profile.postal_code||""} onChange={e=>set("postal_code",e.target.value)}/></label><label className="auth-field">Escolaridade<input value={profile.education||""} onChange={e=>set("education",e.target.value)}/></label><label className="auth-field">Profissão<input value={profile.profession||""} onChange={e=>set("profession",e.target.value)}/></label><label className="auth-field">Estado civil<input value={profile.marital_status||""} onChange={e=>set("marital_status",e.target.value)}/></label><label className="auth-field">Nacionalidade<input value={profile.nationality||""} onChange={e=>set("nationality",e.target.value)}/></label></div><div className="credential-notice"><strong>Gov.br:</strong> registre somente a autorização de atendimento e acompanhamento. Nunca informe ou armazene senha ou código de acesso.</div><label className="consent-check"><input type="checkbox" checked={Boolean(profile.consent_recorded)} onChange={e=>set("consent_recorded",e.target.checked)}/> Cliente autorizou o atendimento e acompanhamento do acesso Gov.br.</label>{error&&<div className="auth-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy||!customerId}>{busy?"Salvando...":"Salvar dados complementares"}</button></div></form></Modal>;
+}
 
 type NewCustomerDraft = { name: string; phone: string; email: string; cpf: string; address: string };
 
