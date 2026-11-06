@@ -60,3 +60,38 @@
 .os-consent-line{margin-top:10px;background:#fafbfc}
 @media(max-width:600px){.os-data-grid{grid-template-columns:1fr}.os-data-wide{grid-column:auto}.os-firearm-details,.os-service-summary{padding:13px!important}}
 @media print{.os-data-item,.os-doc-item,.os-consent-line{break-inside:avoid}.os-firearm-details,.os-service-summary{break-inside:avoid-page}}
+
+
+/* OS em tela ampla, com leitura de ficha profissional */
+.modal-os-backdrop{padding:0!important;align-items:stretch!important;justify-content:stretch!important;background:rgba(20,22,27,.58)!important}
+.modal-os-full{width:100%!important;max-width:none!important;height:100dvh!important;max-height:100dvh!important;margin:0!important;border-radius:0!important;padding:24px clamp(18px,4vw,64px)!important;overflow-y:auto!important;overscroll-behavior:contain}
+.modal-os-full .modal-header{position:sticky;top:-24px;z-index:5;background:#fff;padding:12px 0 16px;margin-bottom:18px;border-bottom:1px solid #e9eaee}
+.modal-os-full>form,.modal-os-full>.report-grid,.modal-os-full>.panel,.modal-os-full>.os-service-summary,.modal-os-full>.os-firearm-details,.modal-os-full>.customer-form-grid,.modal-os-full>.form-field,.modal-os-full>.modal-actions{width:100%;max-width:1240px;margin-left:auto!important;margin-right:auto!important}
+.modal-os-full .os-top-summary{grid-template-columns:minmax(220px,2fr) repeat(2,minmax(160px,1fr));gap:14px}
+.modal-os-full .os-top-summary .report-card{min-width:0;padding:18px 20px;min-height:112px}
+.modal-os-full .os-top-summary .report-card strong{font-size:19px;line-height:1.4;overflow-wrap:anywhere}
+.modal-os-full .os-service-summary,.modal-os-full .os-firearm-details{padding:24px!important;margin-top:18px!important;margin-bottom:18px!important;border-radius:12px!important}
+.modal-os-full .os-service-summary h3,.modal-os-full .os-firearm-details h3{font-size:18px!important;margin-bottom:20px!important}
+.modal-os-full .os-service-summary>strong{font-size:17px;line-height:1.6}
+.modal-os-full .os-service-summary h4,.modal-os-full .os-firearm-details h4{font-size:14px;margin:24px 0 12px}
+.modal-os-full .os-service-summary p{font-size:15px;line-height:1.8}
+.modal-os-full .os-data-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.modal-os-full .os-data-item{padding:14px 16px;min-height:74px;gap:8px;background:#fff;border-color:#e5e7eb}
+.modal-os-full .os-data-item span{font-size:12px;font-weight:700;color:#646977;line-height:1.4}
+.modal-os-full .os-data-item strong{font-size:14px;font-weight:600;line-height:1.55;color:#20232a}
+.modal-os-full .os-doc-item,.modal-os-full .os-consent-line{padding:14px 16px;font-size:13px}
+.modal-os-full .os-doc-item strong,.modal-os-full .os-consent-line strong{font-size:12px}
+.modal-os-full .customer-form-grid{gap:12px 18px}
+.modal-os-full .form-field{margin-top:18px;margin-bottom:18px}
+@media(max-width:700px){
+ .modal-os-full{padding:12px 12px 28px!important}
+ .modal-os-full .modal-header{top:-12px;padding:10px 0 14px}
+ .modal-os-full .os-top-summary{grid-template-columns:1fr 1fr;gap:8px}
+ .modal-os-full .os-top-summary .report-card:first-child{grid-column:1/-1}
+ .modal-os-full .os-top-summary .report-card{min-height:88px;padding:12px}
+ .modal-os-full .os-top-summary .report-card strong{font-size:16px}
+ .modal-os-full .os-data-grid{grid-template-columns:1fr}
+ .modal-os-full .os-data-wide{grid-column:auto}
+ .modal-os-full .os-service-summary,.modal-os-full .os-firearm-details{padding:16px!important}
+}
+@media print{.modal-os-backdrop{position:static!important}.modal-os-full{height:auto!important;max-height:none!important;padding:0!important}.modal-os-full .modal-header{position:static}}
