@@ -95,3 +95,41 @@
  .modal-os-full .os-service-summary,.modal-os-full .os-firearm-details{padding:16px!important}
 }
 @media print{.modal-os-backdrop{position:static!important}.modal-os-full{height:auto!important;max-height:none!important;padding:0!important}.modal-os-full .modal-header{position:static}}
+
+
+/* Cabeçalho e impressão profissional da OS */
+.modal-os-full .modal-header{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.modal-header-actions{display:flex;align-items:center;gap:12px}
+.os-print-button{display:inline-flex;align-items:center;gap:8px;border:1px solid #d8b13c;background:#f5c542;color:#242019;border-radius:8px;padding:10px 16px;font:700 12px Manrope,sans-serif}
+.os-print-button:hover{background:#edbd30}
+@media print{
+ @page{size:A4 portrait;margin:14mm 13mm}
+ html,body,#root{width:100%!important;min-width:0!important;height:auto!important;background:#fff!important;overflow:visible!important}
+ body *{visibility:hidden!important}
+ .modal-os-backdrop,.modal-os-backdrop *{visibility:visible!important}
+ .modal-os-backdrop{position:static!important;display:block!important;width:100%!important;height:auto!important;min-height:0!important;padding:0!important;margin:0!important;background:#fff!important;overflow:visible!important}
+ .modal-os-full{position:static!important;width:100%!important;max-width:none!important;height:auto!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;overflow:visible!important}
+ .modal-os-full .modal-header{position:static!important;top:auto!important;display:flex!important;justify-content:flex-start!important;padding:0 0 9mm!important;margin:0 0 7mm!important;border-bottom:1.5pt solid #333!important;background:#fff!important}
+ .modal-os-full .modal-header h2{font-size:16pt!important;color:#111!important}
+ .modal-os-full .modal-header-actions,.modal-os-full .modal-actions,.modal-os-full .form-field select,.modal-os-full .form-field textarea,.modal-os-full .form-field button,.modal-os-full .auth-field,.modal-os-full .icon-button{display:none!important}
+ .modal-os-full>.report-grid,.modal-os-full>.panel,.modal-os-full>.os-service-summary,.modal-os-full>.os-firearm-details,.modal-os-full>.customer-form-grid,.modal-os-full>.form-field{width:100%!important;max-width:none!important;margin:0 0 6mm!important}
+ .modal-os-full .os-top-summary{display:grid!important;grid-template-columns:2fr 1fr 1fr!important;gap:4mm!important}
+ .modal-os-full .os-top-summary .report-card{min-height:0!important;padding:4mm!important;border:1pt solid #bbb!important;background:#fff!important;break-inside:avoid}
+ .modal-os-full .os-top-summary .report-card strong{font-size:11pt!important;color:#111!important}
+ .modal-os-full .os-service-summary,.modal-os-full .os-firearm-details{padding:5mm!important;border:1pt solid #aaa!important;border-radius:2mm!important;background:#fff!important;break-inside:auto!important}
+ .modal-os-full .os-service-summary h3,.modal-os-full .os-firearm-details h3{font-size:12pt!important;margin:0 0 4mm!important}
+ .modal-os-full .os-service-summary>strong{font-size:11pt!important}
+ .modal-os-full .os-service-summary h4,.modal-os-full .os-firearm-details h4{font-size:10pt!important;margin:5mm 0 3mm!important}
+ .modal-os-full .os-service-summary p{font-size:10pt!important;line-height:1.5!important}
+ .modal-os-full .os-data-grid{grid-template-columns:1fr 1fr!important;gap:2.5mm!important}
+ .modal-os-full .os-data-item{padding:3mm!important;min-height:0!important;border:0.7pt solid #ccc!important;background:#fff!important;break-inside:avoid}
+ .modal-os-full .os-data-item span{font-size:8pt!important;color:#444!important}
+ .modal-os-full .os-data-item strong{font-size:9pt!important;color:#111!important}
+ .modal-os-full .os-doc-item,.modal-os-full .os-consent-line{padding:3mm!important;border:0.7pt solid #ccc!important;background:#fff!important;break-inside:avoid}
+ .modal-os-full .customer-form-grid{display:grid!important;grid-template-columns:1fr 1fr!important;gap:3mm!important}
+ .modal-os-full .form-field{font-size:9pt!important}
+ .modal-os-full .panel{box-shadow:none!important}
+ .modal-os-full .panel h3{font-size:11pt!important}
+ .modal-os-full .panel small,.modal-os-full .panel span{color:#222!important}
+ .modal-os-full .panel div{break-inside:avoid}
+}
