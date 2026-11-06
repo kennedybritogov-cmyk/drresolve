@@ -178,7 +178,8 @@ function DashboardApp({ email }: { email: string }) {
           {page === "pdv" && <CashRegisterPage />}
           {page === "ordens" && <OrdersPage orders={filteredOrders} search={search} setSearch={setSearch} onNew={() => setShowNewOrder(true)} />}
           {page === "producao" && <ProductionPage orders={orders.filter((o) => o.category === "Serviços gráficos")} />}
-          {page === "clientes" && <CustomersPage />}\n          {page === "catalogo" && <CatalogPage />}
+          {page === "clientes" && <CustomersPage />}
+          {page === "catalogo" && <CatalogPage />}
           {page === "relatorios" && <ReportsPage />}
           {page === "configuracoes" && <GenericPage title="Configurações" subtitle="Personalize os dados e as preferências do Doutor Resolve Tech." icon={<Settings/>}><div className="settings-list"><div><strong>Dados da empresa</strong><span>Nome, slogan e informações comerciais</span><ChevronRight/></div><div><strong>Metas de faturamento</strong><span>Defina objetivos diários, semanais e mensais</span><ChevronRight/></div><div><strong>Usuários e acessos</strong><span>Dois usuários com permissões iguais</span><ChevronRight/></div><div><strong>Formas de pagamento</strong><span>Configure dinheiro, PIX, cartão e outros</span><ChevronRight/></div></div></GenericPage>}
         </div>
