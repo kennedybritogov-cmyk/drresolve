@@ -162,3 +162,23 @@
 .text-action:active{transform:translateY(0)!important}
 .text-action:focus-visible,.os-print-button:focus-visible{outline:3px solid rgba(213,169,42,.3)!important;outline-offset:2px!important}
 @media(max-width:600px){.modal-os-full .os-print-button{min-height:39px!important;padding:0 12px!important;font-size:11px!important}.text-action{min-height:42px!important}}
+
+
+/* Campo Serviço solicitado: mesmo padrão visual dos demais campos da OS */
+.modal input[name="serviceTitle"],
+.modal input[placeholder="Ex.: Manutenção de notebook, cartões de visita..."]{
+ display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;
+ height:44px!important;padding:0 13px!important;
+ border:1px solid #e3e4e8!important;border-radius:8px!important;
+ background:#fff!important;color:#202127!important;
+ font:400 12px Manrope,sans-serif!important;line-height:normal!important;
+ outline:none!important;box-shadow:none!important;
+}
+.modal input[name="serviceTitle"]:focus,
+.modal input[placeholder="Ex.: Manutenção de notebook, cartões de visita..."]:focus{
+ border-color:#d7ad2e!important;box-shadow:0 0 0 3px #f5c54225!important;
+}
+.modal input[name="serviceTitle"]::placeholder,
+.modal input[placeholder="Ex.: Manutenção de notebook, cartões de visita..."]::placeholder{
+ color:#92949d!important;opacity:1!important;font:400 12px Manrope,sans-serif!important;
+}
