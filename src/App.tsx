@@ -164,7 +164,7 @@ function DashboardApp({ email }: { email: string }) {
       </main>
 
       {showNewSale && <Modal title="Iniciar nova venda" onClose={() => setShowNewSale(false)}><p className="modal-copy">O PDV completo será conectado na próxima etapa. Esta é uma prévia da ação.</p><div className="form-field"><label>Tipo de operação</label><select><option>Produto</option><option>Serviço gráfico — abrir OS</option><option>Manutenção — abrir OS</option><option>Impressão 3D — abrir OS</option></select></div><div className="modal-actions"><button className="secondary-button" onClick={() => setShowNewSale(false)}>Voltar</button><button className="primary-button" onClick={() => {setShowNewSale(false);setNotice("PDV demonstrativo: fluxo de venda será implementado na próxima etapa.");}}>Continuar <ChevronRight size={16}/></button></div></Modal>}
-      {showNewOrder && <Modal title="Nova ordem de serviço" onClose={() => setShowNewOrder(false)}><p className="modal-copy">Selecione a categoria para abrir o formulário correspondente.</p><div className="category-options"><button onClick={createDemoOrder}><Monitor/><span><strong>Manutenção</strong><small>Notebook e computador</small></span><ChevronRight/></button><button onClick={createDemoOrder}><Printer/><span><strong>Serviços gráficos</strong><small>Impressões e materiais gráficos</small></span><ChevronRight/></button><button onClick={createDemoOrder}><Box/><span><strong>Impressão 3D</strong><small>Peças e projetos personalizados</small></span><ChevronRight/></button></div></Modal>}
+      {showNewOrder && <NewServiceOrderModal onClose={() => setShowNewOrder(false)} onSaved={(number) => { setShowNewOrder(false); setNotice(`OS #${number} criada com sucesso.`); }} />}
     </div>
   );
 }
@@ -344,6 +344,137 @@ function CustomersPage() {
       </form>
     </Modal>}
   </>;
+}
+
+
+type NewCustomerDraft = { name: string; phone: string; email: string; cpf: string; address: string };
+
+function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSaved: (number: number) => void }) {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [draft, setDraft] = useState<NewCustomerDraft>({ name: "", phone: "", email: "", cpf: "", address: "" });
+  const [category, setCategory] = useState("maintenance");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [equipment, setEquipment] = useState("");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  const [reportedDefect, setReportedDefect] = useState("");
+  const [estimatedTotal, setEstimatedTotal] = useState("0");
+  const [dueAt, setDueAt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      if (!supabase) return;
+      const { data, error: loadError } = await supabase.from("customers")
+        .select("id,name,phone,email,cpf,address,notes,is_active,created_at")
+        .eq("is_active", true).order("name").limit(500);
+      if (!alive) return;
+      if (loadError) setError("Não foi possível carregar os clientes cadastrados.");
+      else setCustomers((data ?? []) as Customer[]);
+    }
+    void load();
+    return () => { alive = false; };
+  }, []);
+
+  const matches = customers.filter((c) =>
+    [c.name, c.phone ?? "", c.email ?? "", c.cpf ?? ""].join(" ").toLowerCase().includes(customerSearch.toLowerCase())
+  ).slice(0, 8);
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+    setBusy(true); setError("");
+    try {
+      let customer = selectedCustomer;
+      if (!customer && creatingCustomer) {
+        if (!draft.name.trim()) throw new Error("Informe o nome do cliente.");
+        const { data, error: customerError } = await supabase.from("customers").insert({
+          name: draft.name.trim(), phone: draft.phone.trim() || null,
+          email: draft.email.trim() || null, cpf: draft.cpf.trim() || null,
+          address: draft.address.trim() || null
+        }).select("id,name,phone,email,cpf,address,notes,is_active,created_at").single();
+        if (customerError) throw customerError;
+        customer = data as Customer;
+      }
+      if (!customer) throw new Error("Selecione um cliente ou cadastre um novo.");
+      if (!title.trim()) throw new Error("Informe o serviço solicitado.");
+      const { data: order, error: orderError } = await supabase.from("service_orders").insert({
+        customer_id: customer.id,
+        category,
+        title: title.trim(),
+        description: description.trim() || null,
+        equipment: equipment.trim() || null,
+        make: make.trim() || null,
+        model: model.trim() || null,
+        reported_defect: reportedDefect.trim() || null,
+        estimated_total: Number(estimatedTotal || 0),
+        due_at: dueAt ? new Date(dueAt).toISOString() : null,
+        status: "open",
+        production_status: category === "graphic" ? "waiting" : null
+      }).select("id,order_number").single();
+      if (orderError) throw orderError;
+      const { data: userData } = await supabase.auth.getUser();
+      await supabase.from("service_order_events").insert({
+        service_order_id: order.id, event_type: "created",
+        description: "Ordem de serviço criada.", actor_id: userData.user?.id ?? null
+      });
+      onSaved(Number(order.order_number));
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : "Não foi possível salvar a ordem. Confira os dados e tente novamente.");
+      setBusy(false);
+    }
+  }
+
+  return <Modal title="Nova ordem de serviço" onClose={onClose}>
+    <form onSubmit={save}>
+      <div className="form-field">
+        <label>Cliente *</label>
+        {selectedCustomer ? <div className="selected-customer"><div><strong>{selectedCustomer.name}</strong><small>{selectedCustomer.phone || selectedCustomer.email || "Cliente selecionado"}</small></div><button type="button" className="secondary-button" onClick={() => { setSelectedCustomer(null); setCustomerSearch(""); }}>Trocar</button></div> :
+          <>
+            <label className="search-box customer-picker-search"><Search size={16}/><input value={customerSearch} onChange={(e) => { setCustomerSearch(e.target.value); setCreatingCustomer(false); }} placeholder="Buscar por nome, telefone, e-mail ou CPF"/></label>
+            {customerSearch.trim() && <div className="customer-picker-results">
+              {matches.map((c) => <button type="button" key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearch(""); }}><strong>{c.name}</strong><small>{c.phone || c.email || c.cpf || "Sem contato informado"}</small></button>)}
+              {matches.length === 0 && <p>Nenhum cliente encontrado com essa busca.</p>}
+            </div>}
+            <button type="button" className="text-action" onClick={() => { setCreatingCustomer(true); setSelectedCustomer(null); }}>+ Cadastrar novo cliente</button>
+          </>
+        }
+      </div>
+      {creatingCustomer && <section className="inline-customer-form">
+        <h3>Novo cadastro de cliente</h3><p>Após salvar, ele será vinculado automaticamente a esta OS.</p>
+        <div className="customer-form-grid">
+          <label className="auth-field wide">Nome completo *<input required value={draft.name} onChange={(e)=>setDraft({...draft,name:e.target.value})} maxLength={160}/></label>
+          <label className="auth-field">Telefone<input value={draft.phone} onChange={(e)=>setDraft({...draft,phone:e.target.value})} maxLength={40}/></label>
+          <label className="auth-field">E-mail<input type="email" value={draft.email} onChange={(e)=>setDraft({...draft,email:e.target.value})} maxLength={254}/></label>
+          <label className="auth-field">CPF<input value={draft.cpf} onChange={(e)=>setDraft({...draft,cpf:e.target.value})} maxLength={14}/></label>
+          <label className="auth-field wide">Endereço<input value={draft.address} onChange={(e)=>setDraft({...draft,address:e.target.value})} maxLength={300}/></label>
+        </div>
+      </section>}
+      <div className="form-field"><label>Categoria *</label><select value={category} onChange={(e)=>setCategory(e.target.value)}>
+        <option value="maintenance">Manutenção</option><option value="graphic">Serviços gráficos</option><option value="printing_3d">Impressão 3D</option><option value="firearm_process">Processos de CR/CAC</option>
+      </select></div>
+      <div className="form-field"><label>Serviço solicitado *</label><input required value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Ex.: Manutenção de notebook, cartões de visita..."/></div>
+      {(category === "maintenance") && <div className="customer-form-grid">
+        <label className="auth-field">Equipamento<input value={equipment} onChange={(e)=>setEquipment(e.target.value)} placeholder="Notebook, computador..."/></label>
+        <label className="auth-field">Marca<input value={make} onChange={(e)=>setMake(e.target.value)}/></label>
+        <label className="auth-field">Modelo<input value={model} onChange={(e)=>setModel(e.target.value)}/></label>
+        <label className="auth-field wide">Defeito relatado<textarea rows={2} value={reportedDefect} onChange={(e)=>setReportedDefect(e.target.value)}/></label>
+      </div>}
+      <div className="form-field"><label>Descrição / observações</label><textarea rows={3} value={description} onChange={(e)=>setDescription(e.target.value)} placeholder="Detalhes do atendimento, especificações ou orientações"/></div>
+      <div className="customer-form-grid">
+        <label className="auth-field">Valor estimado (R$)<input type="number" min="0" step="0.01" value={estimatedTotal} onChange={(e)=>setEstimatedTotal(e.target.value)}/></label>
+        <label className="auth-field">Prazo previsto<input type="datetime-local" value={dueAt} onChange={(e)=>setDueAt(e.target.value)}/></label>
+      </div>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy ? "Salvando..." : "Criar ordem de serviço"}</button></div>
+    </form>
+  </Modal>;
 }
 
 function GenericPage({ title, subtitle, icon, action, onAction, children }: { title: string; subtitle: string; icon: React.ReactNode; action?: string; onAction?: () => void; children: React.ReactNode }) {
