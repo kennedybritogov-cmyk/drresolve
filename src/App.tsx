@@ -157,7 +157,7 @@ function DashboardApp({ email }: { email: string }) {
           {page === "pdv" && <GenericPage title="PDV / Vendas" subtitle="Registre vendas de produtos e serviços em poucos passos." icon={<ShoppingBag/>} action="Nova venda" onAction={() => setShowNewSale(true)}><div className="empty-hint"><CreditCard size={28}/><strong>Frente de caixa</strong><p>O cadastro de produtos, serviços e pagamentos será implementado na próxima etapa.</p><button className="primary-button" onClick={() => setShowNewSale(true)}><Plus size={16}/> Iniciar venda</button></div></GenericPage>}
           {page === "ordens" && <OrdersPage orders={filteredOrders} search={search} setSearch={setSearch} onNew={() => setShowNewOrder(true)} />}
           {page === "producao" && <ProductionPage orders={orders.filter((o) => o.category === "Serviços gráficos")} />}
-          {page === "clientes" && <GenericPage title="Clientes" subtitle="Consulte e organize o relacionamento com seus clientes." icon={<Users/>} action="Novo cliente" onAction={() => setNotice("Cadastro de clientes será implementado na próxima etapa.")}><div className="empty-hint"><Users size={28}/><strong>Seus clientes em um só lugar</strong><p>O cadastro e o histórico de atendimentos serão conectados ao banco de dados na próxima etapa.</p></div></GenericPage>}
+          {page === "clientes" && <CustomersPage />}
           {page === "relatorios" && <GenericPage title="Relatórios" subtitle="Acompanhe o desempenho e os resultados da sua empresa." icon={<TrendingUp/>} action="Exportar relatório" onAction={() => setNotice("A exportação será habilitada quando os dados reais estiverem conectados.")}><div className="report-grid"><div className="report-card"><span>Faturamento no mês</span><strong>R$ 8.450,00</strong><small>Valor ilustrativo</small></div><div className="report-card"><span>Ordens concluídas</span><strong>38</strong><small>Quantidade ilustrativa</small></div><div className="report-card"><span>Ticket médio</span><strong>R$ 125,40</strong><small>Valor ilustrativo</small></div></div></GenericPage>}
           {page === "configuracoes" && <GenericPage title="Configurações" subtitle="Personalize os dados e as preferências do Doutor Resolve Tech." icon={<Settings/>}><div className="settings-list"><div><strong>Dados da empresa</strong><span>Nome, slogan e informações comerciais</span><ChevronRight/></div><div><strong>Metas de faturamento</strong><span>Defina objetivos diários, semanais e mensais</span><ChevronRight/></div><div><strong>Usuários e acessos</strong><span>Dois usuários com permissões iguais</span><ChevronRight/></div><div><strong>Formas de pagamento</strong><span>Configure dinheiro, PIX, cartão e outros</span><ChevronRight/></div></div></GenericPage>}
         </div>
@@ -216,6 +216,134 @@ function OrdersPage({ orders, search, setSearch, onNew }: { orders: typeof initi
 function ProductionPage({ orders }: { orders: typeof initialOrders }) {
   const columns = [{name:"Aguardando", color:"amber"},{name:"Em andamento",color:"blue"},{name:"Pronto",color:"green"}];
   return <><div className="page-heading"><div><div className="eyebrow">OPERAÇÃO</div><h1>Produção <span>gráfica</span></h1><p>Visualize e acompanhe a fila de produção da gráfica.</p></div><div className="heading-actions"><span className="production-date"><CalendarDays size={16}/> Hoje, 05 nov</span></div></div><div className="production-summary"><div><span>Pedidos na fila</span><strong>{orders.length.toString().padStart(2,"0")}</strong></div><div><span>Aguardando</span><strong>{orders.filter(o=>o.status==="Aguardando").length.toString().padStart(2,"0")}</strong></div><div><span>Em produção</span><strong>{orders.filter(o=>o.status==="Em andamento").length.toString().padStart(2,"0")}</strong></div><div><span>Prontos</span><strong>{orders.filter(o=>o.status==="Pronto").length.toString().padStart(2,"0")}</strong></div></div><div className="kanban">{columns.map((col) => <section className="kanban-column" key={col.name}><div className="kanban-heading"><span className={`kanban-dot ${col.color}`}/><strong>{col.name}</strong><b>{orders.filter(o=>o.status===col.name).length}</b></div>{orders.filter(o=>o.status===col.name).map((o)=><article className="production-card" key={o.id}><span className="order-id">{o.id}</span><h3>{o.service}</h3><p>{o.client}</p><div><Clock3 size={14}/> {o.date}</div><strong>{money(o.value)}</strong></article>)}{orders.filter(o=>o.status===col.name).length===0&&<div className="column-empty">Nenhum pedido nesta etapa.</div>}</section>)}</div></>;
+}
+
+
+type Customer = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  cpf: string | null;
+  address: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+function CustomersPage() {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Customer | null>(null);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [address, setAddress] = useState("");
+  const [notes, setNotes] = useState("");
+
+  async function loadCustomers() {
+    if (!supabase) return;
+    setLoading(true);
+    setError("");
+    const { data, error: loadError } = await supabase
+      .from("customers")
+      .select("id,name,phone,email,cpf,address,notes,is_active,created_at")
+      .eq("is_active", true)
+      .order("name", { ascending: true })
+      .limit(500);
+    if (loadError) setError("Não foi possível carregar os clientes. Confira a conexão e as permissões do banco.");
+    else setCustomers((data ?? []) as Customer[]);
+    setLoading(false);
+  }
+
+  useEffect(() => { void loadCustomers(); }, []);
+
+  function openNew() {
+    setEditing(null);
+    setName(""); setPhone(""); setEmail(""); setCpf(""); setAddress(""); setNotes("");
+    setShowForm(true);
+  }
+
+  function openEdit(customer: Customer) {
+    setEditing(customer);
+    setName(customer.name); setPhone(customer.phone ?? ""); setEmail(customer.email ?? "");
+    setCpf(customer.cpf ?? ""); setAddress(customer.address ?? ""); setNotes(customer.notes ?? "");
+    setShowForm(true);
+  }
+
+  async function saveCustomer(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+    setSaving(true); setError("");
+    const payload = {
+      name: name.trim(), phone: phone.trim() || null, email: email.trim() || null,
+      cpf: cpf.trim() || null, address: address.trim() || null, notes: notes.trim() || null,
+      updated_at: new Date().toISOString()
+    };
+    const result = editing
+      ? await supabase.from("customers").update(payload).eq("id", editing.id)
+      : await supabase.from("customers").insert(payload);
+    if (result.error) {
+      setError("Não foi possível salvar. Verifique os dados e tente novamente.");
+      setSaving(false);
+      return;
+    }
+    setShowForm(false); setSaving(false);
+    await loadCustomers();
+  }
+
+  async function archiveCustomer(customer: Customer) {
+    if (!supabase || !window.confirm(`Arquivar o cadastro de ${customer.name}? O histórico será preservado.`)) return;
+    const { error: archiveError } = await supabase.from("customers")
+      .update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", customer.id);
+    if (archiveError) setError("Não foi possível arquivar este cliente.");
+    else await loadCustomers();
+  }
+
+  const filtered = customers.filter((customer) =>
+    [customer.name, customer.phone ?? "", customer.email ?? "", customer.cpf ?? ""].join(" ").toLowerCase().includes(search.toLowerCase())
+  );
+
+  return <>
+    <div className="page-heading">
+      <div><div className="eyebrow">RELACIONAMENTO</div><h1>Cadastro de <span>clientes</span></h1><p>Cadastre e consulte os clientes compartilhados entre os usuários.</p></div>
+      <button className="primary-button" onClick={openNew}><Plus size={16}/> Novo cliente</button>
+    </div>
+    <section className="panel customers-panel">
+      <div className="customers-toolbar">
+        <div><strong>{customers.length}</strong><span> clientes ativos</span></div>
+        <label className="search-box"><Search size={16}/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nome, telefone, e-mail ou CPF"/></label>
+      </div>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      {loading ? <div className="empty-state">Carregando clientes...</div> :
+        filtered.length === 0 ? <div className="customers-empty"><Users size={30}/><strong>{search ? "Nenhum cliente encontrado" : "Nenhum cliente cadastrado ainda"}</strong><p>{search ? "Tente buscar por outro dado." : "Cadastre o primeiro cliente para começar a usar os registros reais."}</p><button className="primary-button" onClick={openNew}><Plus size={16}/> Novo cliente</button></div> :
+        <div className="table-wrap"><table><thead><tr><th>NOME</th><th>TELEFONE</th><th>E-MAIL</th><th>CPF</th><th>AÇÕES</th></tr></thead><tbody>
+          {filtered.map((customer) => <tr key={customer.id}>
+            <td><strong>{customer.name}</strong></td><td>{customer.phone || "—"}</td><td>{customer.email || "—"}</td><td>{customer.cpf || "—"}</td>
+            <td><div className="customer-actions"><button onClick={() => openEdit(customer)}>Editar</button><button onClick={() => void archiveCustomer(customer)}>Arquivar</button></div></td>
+          </tr>)}
+        </tbody></table></div>
+      }
+    </section>
+    {showForm && <Modal title={editing ? "Editar cliente" : "Novo cliente"} onClose={() => setShowForm(false)}>
+      <form onSubmit={saveCustomer}>
+        <div className="customer-form-grid">
+          <label className="auth-field wide">Nome completo *<input required maxLength={160} value={name} onChange={(e)=>setName(e.target.value)} placeholder="Nome do cliente"/></label>
+          <label className="auth-field">Telefone<input maxLength={40} value={phone} onChange={(e)=>setPhone(e.target.value)} placeholder="(00) 00000-0000"/></label>
+          <label className="auth-field">E-mail<input type="email" maxLength={254} value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="cliente@email.com"/></label>
+          <label className="auth-field">CPF (opcional)<input maxLength={14} value={cpf} onChange={(e)=>setCpf(e.target.value)} placeholder="000.000.000-00"/></label>
+          <label className="auth-field wide">Endereço<input maxLength={300} value={address} onChange={(e)=>setAddress(e.target.value)} placeholder="Endereço do cliente"/></label>
+          <label className="auth-field wide">Observações<textarea rows={3} maxLength={2000} value={notes} onChange={(e)=>setNotes(e.target.value)} placeholder="Informações adicionais"/></label>
+        </div>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={()=>setShowForm(false)}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? "Salvando..." : "Salvar cliente"}</button></div>
+      </form>
+    </Modal>}
+  </>;
 }
 
 function GenericPage({ title, subtitle, icon, action, onAction, children }: { title: string; subtitle: string; icon: React.ReactNode; action?: string; onAction?: () => void; children: React.ReactNode }) {
