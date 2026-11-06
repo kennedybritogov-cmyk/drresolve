@@ -194,29 +194,53 @@ function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder
   setShowNewSale: (value: boolean) => void; setShowNewOrder: (value: boolean) => void;
   orders: typeof initialOrders;
 }) {
-  const [goalTab, setGoalTab] = useState("Diária");
-  const goals = { Diária: { target: 650, current: 420 }, Semanal: { target: 3500, current: 2180 }, Mensal: { target: 14000, current: 8450 } };
-  const goal = goals[goalTab as keyof typeof goals];
-  const progress = Math.min(100, Math.round(goal.current / goal.target * 100));
-  return <>
-    <div className="page-heading"><div><div className="eyebrow">QUARTA-FEIRA, 05 DE NOVEMBRO DE 2026</div><h1>Bom dia! <span>Vamos resolver?</span></h1><p>Acompanhe o movimento e mantenha sua operação em dia.</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => setShowNewOrder(true)}><Plus size={16}/> Nova OS</button><button className="primary-button" onClick={() => setShowNewSale(true)}><Plus size={16}/> Nova venda</button></div></div>
-    <div className="section-toolbar"><div><h2>Visão geral</h2><span>Resumo do desempenho da sua loja</span></div><label className="select-wrap"><CalendarDays size={16}/><select value={period} onChange={(e) => setPeriod(e.target.value)}><option>Este mês</option><option>Esta semana</option><option>Hoje</option></select><ChevronDown size={14}/></label></div>
-    <div className="metrics-grid">
-      <Metric icon={<Wallet/>} label="Faturamento do mês" value="R$ 8.450,00" change="+12,8%" positive detail="em relação ao mês anterior"/>
-      <Metric icon={<ShoppingBag/>} label="Vendas realizadas" value="67" change="+8,2%" positive detail="vendas neste período"/>
-      <Metric icon={<ClipboardList/>} label="OS em aberto" value="12" change="4 novas" detail="aguardando ou em andamento"/>
-      <Metric icon={<Printer/>} label="Produção gráfica" value="08" change="3 prontas" detail="pedidos na fila de produção"/>
-    </div>
-    <div className="dashboard-grid">
-      <section className="panel revenue-panel"><div className="panel-heading"><div><h3>Faturamento</h3><p>Desempenho ao longo do período</p></div><button className="more-button" onClick={() => setPage("relatorios")}>Ver relatório <ChevronRight size={15}/></button></div><div className="revenue-total"><strong>R$ 8.450,00</strong><span><ArrowUpRight size={15}/> 12,8%</span></div><RevenueChart/><div className="chart-axis"><span>01 NOV</span><span>05 NOV</span><span>10 NOV</span><span>15 NOV</span><span>20 NOV</span><span>25 NOV</span><span>30 NOV</span></div></section>
-      <section className="panel goals-panel"><div className="panel-heading"><div><h3>Metas de faturamento</h3><p>Seus objetivos e resultados</p></div><Target size={19} className="muted-icon"/></div><div className="goal-tabs">{(["Diária","Semanal","Mensal"] as const).map((tab) => <button className={goalTab === tab ? "selected" : ""} onClick={() => setGoalTab(tab)} key={tab}>{tab}</button>)}</div><div className="goal-amount"><strong>{money(goal.current)}</strong><span>de {money(goal.target)}</span></div><div className="progress-track"><div style={{width: `${progress}%`}}/></div><div className="goal-footer"><span>{progress}% atingido</span><strong>Faltam {money(Math.max(0, goal.target - goal.current))}</strong></div><div className="goal-tip"><Target size={16}/><span>{progress >= 100 ? "Meta alcançada! Excelente trabalho." : "Continue assim! Você está no caminho da sua meta."}</span></div></section>
-    </div>
-    <div className="bottom-grid">
-      <section className="panel orders-panel"><div className="panel-heading"><div><h3>Ordens recentes</h3><p>Acompanhe os últimos atendimentos</p></div><button className="more-button" onClick={() => setPage("ordens")}>Ver todas <ChevronRight size={15}/></button></div><div className="table-wrap"><table><thead><tr><th>ORDEM</th><th>CLIENTE / SERVIÇO</th><th>SITUAÇÃO</th><th>VALOR</th></tr></thead><tbody>{orders.slice(0,4).map((order) => <tr key={order.id}><td className="order-id">{order.id}</td><td><strong>{order.client}</strong><small>{order.service}</small></td><td><Status status={order.status}/></td><td className="table-value">{money(order.value)}</td></tr>)}</tbody></table></div></section>
-      <section className="panel shortcuts-panel"><div className="panel-heading"><div><h3>Acesso rápido</h3><p>O que você precisa fazer?</p></div></div><div className="shortcut-list"><button onClick={() => setShowNewSale(true)}><span className="shortcut-icon yellow"><ShoppingBag/></span><span><strong>Registrar venda</strong><small>Abrir o PDV</small></span><ChevronRight/></button><button onClick={() => setShowNewOrder(true)}><span className="shortcut-icon gray"><FileText/></span><span><strong>Abrir ordem de serviço</strong><small>Registrar atendimento</small></span><ChevronRight/></button><button onClick={() => setPage("producao")}><span className="shortcut-icon gray"><Printer/></span><span><strong>Ver produção gráfica</strong><small>Acompanhar pedidos</small></span><ChevronRight/></button></div></section>
-    </div>
-    <div className="demo-disclaimer"><Activity size={15}/><span>Ambiente de demonstração — os valores e registros exibidos são ilustrativos e ainda não estão conectados ao Supabase.</span></div>
-  </>;
+ const [goalTab,setGoalTab]=useState("Diária");
+ const [sales,setSales]=useState<{total:number;created_at:string;status:string}[]>([]);
+ const [loading,setLoading]=useState(true);
+ const [goalTargets,setGoalTargets]=useState({Diária:650,Semanal:3500,Mensal:14000});
+ useEffect(()=>{let active=true;async function load(){if(!supabase){setLoading(false);return;}
+  const [{data:saleData},{data:goalData}]=await Promise.all([
+   supabase.from("sales").select("total,created_at,status").in("status",["paid","refunded"]).order("created_at",{ascending:false}).limit(1500),
+   supabase.from("revenue_goals").select("period_type,target_amount,starts_on,ends_on").order("starts_on",{ascending:false}).limit(100)
+  ]);
+  if(active){setSales((saleData??[]) as typeof sales);const today=new Date().toISOString().slice(0,10);
+   const activeGoals=(goalData??[]).filter((g:any)=>g.starts_on<=today&&g.ends_on>=today);
+   setGoalTargets(old=>({...old,...Object.fromEntries(activeGoals.map((g:any)=>[g.period_type==="daily"?"Diária":g.period_type==="weekly"?"Semanal":"Mensal",Number(g.target_amount)]))}));}
+  setLoading(false);
+ }void load();return()=>{active=false;};},[]);
+ const now=new Date();
+ const start=new Date(now);
+ if(period==="Hoje")start.setHours(0,0,0,0);
+ else if(period==="Esta semana"){const day=(start.getDay()+6)%7;start.setDate(start.getDate()-day);start.setHours(0,0,0,0);}
+ else start.setDate(1),start.setHours(0,0,0,0);
+ const end=new Date(now);end.setHours(23,59,59,999);
+ const periodSales=sales.filter(s=>new Date(s.created_at)>=start&&new Date(s.created_at)<=end);
+ const validSales=periodSales.filter(s=>s.status==="paid");
+ const revenue=validSales.reduce((sum,s)=>sum+Number(s.total),0);
+ const orderOpen=orders.filter(o=>!["Pronto","Concluído","Cancelado"].includes(o.status)).length;
+ const graphicOrders=orders.filter(o=>o.category==="Serviços gráficos"&&!["Pronto","Concluído","Cancelado"].includes(o.status)).length;
+ const goals={Diária:{target:goalTargets.Diária,current:revenue},Semanal:{target:goalTargets.Semanal,current:revenue},Mensal:{target:goalTargets.Mensal,current:revenue}};
+ const goal=goals[goalTab as keyof typeof goals];const progress=goal.target>0?Math.min(100,Math.round(goal.current/goal.target*100)):0;
+ const revenueLabel=money(revenue);
+ const dateLabel=now.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
+ return <>
+  <div className="page-heading"><div><div className="eyebrow">{dateLabel.toUpperCase()}</div><h1>Bom dia! <span>Vamos resolver?</span></h1><p>Acompanhe o movimento e mantenha sua operação em dia.</p></div><div className="heading-actions"><button className="secondary-button" onClick={()=>setShowNewOrder(true)}><Plus size={16}/> Nova OS</button><button className="primary-button" onClick={()=>setShowNewSale(true)}><Plus size={16}/> Nova venda</button></div></div>
+  <div className="section-toolbar"><div><h2>Visão geral</h2><span>Resumo do desempenho da sua loja</span></div><label className="select-wrap"><CalendarDays size={16}/><select value={period} onChange={e=>setPeriod(e.target.value)}><option>Este mês</option><option>Esta semana</option><option>Hoje</option></select><ChevronDown size={14}/></label></div>
+  <div className="metrics-grid">
+   <Metric icon={<Wallet/>} label="Faturamento" value={loading?"Carregando...":revenueLabel} change={period} detail="Vendas pagas, sem cancelamentos"/>
+   <Metric icon={<ShoppingBag/>} label="Vendas realizadas" value={loading?"…":String(validSales.length)} change={period} detail="Vendas confirmadas no período"/>
+   <Metric icon={<ClipboardList/>} label="OS em aberto" value={String(orderOpen)} change="Em atendimento" detail="Ordens não concluídas ou canceladas"/>
+   <Metric icon={<Printer/>} label="Produção gráfica" value={String(graphicOrders).padStart(2,"0")} change="Na fila" detail="Serviços gráficos pendentes"/>
+  </div>
+  <div className="dashboard-grid">
+   <section className="panel revenue-panel"><div className="panel-heading"><div><h3>Faturamento</h3><p>Receita de vendas pagas no período selecionado</p></div><button className="more-button" onClick={()=>setPage("relatorios")}>Ver relatório <ChevronRight size={15}/></button></div><div className="revenue-total"><strong>{loading?"Carregando...":revenueLabel}</strong><span>{validSales.length} vendas</span></div><div className="empty-state" style={{padding:24}}>Os indicadores são calculados a partir das vendas registradas no sistema. Consulte Relatórios para ver o detalhamento.</div></section>
+   <section className="panel goals-panel"><div className="panel-heading"><div><h3>Metas de faturamento</h3><p>Objetivos configurados no sistema</p></div><Target size={19} className="muted-icon"/></div><div className="goal-tabs">{(["Diária","Semanal","Mensal"] as const).map(tab=><button className={goalTab===tab?"selected":""} onClick={()=>setGoalTab(tab)} key={tab}>{tab}</button>)}</div><div className="goal-amount"><strong>{money(goal.current)}</strong><span>de {money(goal.target)}</span></div><div className="progress-track"><div style={{width:`${progress}%`}}/></div><div className="goal-footer"><span>{progress}% atingido</span><strong>Faltam {money(Math.max(0,goal.target-goal.current))}</strong></div><div className="goal-tip"><Target size={16}/><span>{goal.target>0?(progress>=100?"Meta alcançada! Excelente trabalho.":"Continue assim! Você está no caminho da sua meta."):"Cadastre uma meta em Configurações para acompanhar seu objetivo."}</span></div></section>
+  </div>
+  <div className="bottom-grid">
+   <section className="panel orders-panel"><div className="panel-heading"><div><h3>Ordens recentes</h3><p>Últimos atendimentos cadastrados</p></div><button className="more-button" onClick={()=>setPage("ordens")}>Ver todas <ChevronRight size={15}/></button></div><div className="table-wrap"><table><thead><tr><th>ORDEM</th><th>CLIENTE / SERVIÇO</th><th>SITUAÇÃO</th><th>VALOR</th></tr></thead><tbody>{orders.slice(0,4).map(order=><tr key={order.id}><td className="order-id">{order.id}</td><td><strong>{order.client}</strong><small>{order.service}</small></td><td><Status status={order.status}/></td><td className="table-value">{money(order.value)}</td></tr>)}</tbody></table>{orders.length===0&&<div className="empty-state">Nenhuma ordem de serviço cadastrada.</div>}</div></section>
+   <section className="panel shortcuts-panel"><div className="panel-heading"><div><h3>Acesso rápido</h3><p>O que você precisa fazer?</p></div></div><div className="shortcut-list"><button onClick={()=>setPage("pdv")}><span className="shortcut-icon yellow"><ShoppingBag/></span><span><strong>Acessar o PDV</strong><small>Abrir frente de caixa</small></span><ChevronRight/></button><button onClick={()=>setShowNewOrder(true)}><span className="shortcut-icon gray"><FileText/></span><span><strong>Abrir ordem de serviço</strong><small>Registrar atendimento</small></span><ChevronRight/></button><button onClick={()=>setPage("producao")}><span className="shortcut-icon gray"><Printer/></span><span><strong>Ver produção gráfica</strong><small>Acompanhar pedidos</small></span><ChevronRight/></button></div></section>
+  </div>
+ </>;
 }
 
 function Metric({ icon, label, value, change, positive, detail }: { icon: React.ReactNode; label: string; value: string; change: string; positive?: boolean; detail: string }) {
