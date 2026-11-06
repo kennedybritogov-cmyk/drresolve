@@ -11,3 +11,19 @@
 
 .customers-panel{min-height:260px}.customers-toolbar{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:16px}.customers-toolbar>div{font-size:11px;color:#858893}.customers-toolbar>div strong{font:800 19px Manrope;color:#17191e}.customers-toolbar .search-box{width:min(100%,380px)}.customers-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:220px;text-align:center}.customers-empty>svg{color:#b18b20;margin-bottom:12px}.customers-empty strong{font:700 13px Manrope}.customers-empty p{font-size:10px;color:#8d9098;margin:8px 0 15px}.customer-actions{display:flex;gap:7px}.customer-actions button{border:1px solid #e8e8eb;background:white;border-radius:6px;padding:6px 8px;font:600 9px Manrope;color:#555;cursor:pointer}.customer-actions button:hover{border-color:#d6ad32;color:#8a6a0b}.customer-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.customer-form-grid .wide{grid-column:1/-1}.customer-form-grid .auth-field{margin:9px 0}.customer-form-grid input,.customer-form-grid textarea{border:1px solid #e3e4e8;border-radius:8px;padding:10px 11px;font:400 11px Manrope;outline:none;resize:vertical}.customer-form-grid input{height:39px}.customer-form-grid input:focus,.customer-form-grid textarea:focus{border-color:#d7ad2e;box-shadow:0 0 0 3px #f5c54225}.customer-form-grid textarea{min-height:68px}.customer-form-grid .auth-field{font-size:10px}.customers-panel .empty-state{padding:35px;text-align:center;color:#888;font-size:11px}
 @media(max-width:600px){.customers-toolbar{align-items:stretch;flex-direction:column}.customers-toolbar .search-box{width:100%}.customer-form-grid{grid-template-columns:1fr}.customer-form-grid .wide{grid-column:auto}.customers-panel .table-wrap{overflow-x:auto}}
+
+.firearm-form-section{border:1px solid #e9e4d5;background:#fffdf7;border-radius:10px;padding:13px;margin:14px 0}
+.firearm-form-section h3{font:800 12px Manrope;margin:5px 0 6px;color:#393a40}
+.firearm-form-section>p{font-size:10px;line-height:1.5;color:#858791;margin:0 0 10px}
+.firearm-form-section .auth-field{margin:8px 0}
+.firearm-form-section .auth-field input,.firearm-form-section .auth-field select{width:100%;height:39px;border:1px solid #e3e4e8;border-radius:8px;padding:0 10px;font:400 11px Manrope;background:#fff}
+.credential-notice{background:#fff4e5;border:1px solid #f3d9ae;border-radius:7px;padding:10px;color:#79521b;font-size:10px;line-height:1.5;margin:12px 0}
+.consent-check{display:flex;align-items:flex-start;gap:8px;font-size:10px;line-height:1.5;color:#555;margin:10px 0}
+.consent-check input,.firearm-checklist input{accent-color:#d3a51c;margin-top:2px}
+.checklist-title{margin-top:17px!important}
+.firearm-checklist{display:grid;gap:8px;margin-top:10px}
+.firearm-checklist label{display:flex;align-items:flex-start;gap:8px;padding:9px;background:#fff;border:1px solid #ece9df;border-radius:7px;font-size:10px}
+.firearm-checklist label span{display:flex;flex-direction:column;gap:3px}
+.firearm-checklist strong{font-size:10px;color:#36373c}
+.firearm-checklist small{font-size:9px;color:#8a8c94;line-height:1.4}
+@media(max-width:600px){.firearm-form-section{padding:10px}.firearm-form-section .customer-form-grid{grid-template-columns:1fr}.firearm-form-section .customer-form-grid .wide{grid-column:auto}}
