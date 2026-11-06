@@ -273,13 +273,13 @@ function ServiceOrderDetail({orderLabel,onClose,onRefresh}:{orderLabel:string;on
  async function load(){if(!supabase)return;const {data,error:oe}=await supabase.from("service_orders").select("*,customers(id,name,phone,email,cpf,address)").eq("order_number",orderNumber).single();if(oe){setError("Não foi possível carregar esta OS: "+oe.message);return;}setOrder(data);setStatus(data.status);if(data.category==="firearm_process"){const [{data:profile},{data:docs}]=await Promise.all([supabase.from("customer_firearm_profiles").select("*").eq("customer_id",data.customer_id).maybeSingle(),supabase.from("firearm_process_documents").select("*").eq("service_order_id",data.id).order("document_type")]);setFirearmProfile(profile);setFirearmDocs(docs??[]);}else{setFirearmProfile(null);setFirearmDocs([]);}const {data:ev,error:ee}=await supabase.from("service_order_events").select("id,event_type,from_status,to_status,description,created_at").eq("service_order_id",data.id).order("created_at",{ascending:false}).limit(100);if(ee)setError("Não foi possível carregar o histórico: "+ee.message);setEvents(ev??[]);}
  useEffect(()=>{void load();},[orderNumber]);
  const statusOptions=[["open","Aberta"],["waiting","Aguardando"],["in_progress","Em andamento"],["awaiting_approval","Aguardando aprovação"],["awaiting_pickup","Aguardando retirada"],["completed","Concluída"],["cancelled","Cancelada"]];
- async function updateStatus(){if(!supabase||!order)return;if(status==="cancelled"&&!cancelReason.trim()){setError("Informe o motivo do cancelamento.");return;}setBusy(true);setError("");const {data:user}=await supabase.auth.getUser();const payload:any={status,updated_at:new Date().toISOString(),updated_by:user.user?.id??null};if(status==="cancelled"){payload.cancellation_reason=cancelReason.trim();payload.cancelled_at=new Date().toISOString();payload.cancelled_by=user.user?.id??null;}if(status==="completed")payload.completed_at=new Date().toISOString();const {error:err}=await supabase.from("service_orders").update(payload).eq("id",order.id);if(err)setError("Não foi possível atualizar: "+err.message);else{await supabase.from("service_order_events").insert({service_order_id:order.id,event_type:status==="cancelled"?"cancelled":status==="completed"?"completed":"status_changed",from_status:order.status,to_status:status,description:status==="cancelled"?cancelReason.trim():"Situação atualizada.",actor_id:user.user?.id??null});await load();onRefresh();}setBusy(false);}
+ async function updateStatus(){if(!supabase||!order)return;if(status==="cancelled"&&!cancelReason.trim()){setError("Informe o motivo do cancelamento.");return;}setBusy(true);setError("");const {data:user}=await supabase.auth.getUser();const payload:any={status,updated_at:new Date().toISOString(),updated_by:user.user?.id??null};if(order.category==="graphic"){payload.production_status=status==="cancelled"?"cancelled":status==="awaiting_pickup"||status==="completed"?"ready":status==="in_progress"?"in_production":"waiting";}if(status==="cancelled"){payload.cancellation_reason=cancelReason.trim();payload.cancelled_at=new Date().toISOString();payload.cancelled_by=user.user?.id??null;}if(status==="completed")payload.completed_at=new Date().toISOString();const {error:err}=await supabase.from("service_orders").update(payload).eq("id",order.id);if(err)setError("Não foi possível atualizar: "+err.message);else{await supabase.from("service_order_events").insert({service_order_id:order.id,event_type:status==="cancelled"?"cancelled":status==="completed"?"completed":"status_changed",from_status:order.status,to_status:status,description:status==="cancelled"?cancelReason.trim():"Situação atualizada.",actor_id:user.user?.id??null});await load();onRefresh();}setBusy(false);}
  async function addNote(){if(!supabase||!order||!note.trim())return;setBusy(true);const {data:user}=await supabase.auth.getUser();const {error:err}=await supabase.from("service_order_events").insert({service_order_id:order.id,event_type:"note",description:note.trim(),actor_id:user.user?.id??null});if(err)setError("Não foi possível salvar a observação: "+err.message);else{setNote("");await load();}setBusy(false);}
  if(!order)return <Modal title={orderLabel} onClose={onClose}><div className="empty-state">Carregando ordem de serviço...</div>{error&&<div className="auth-error">{error}</div>}</Modal>;
  return <Modal title={`Ordem de serviço #${order.order_number}`} onClose={onClose}><div className="report-grid os-top-summary"><div className="report-card"><span>Cliente:</span><strong>{order.customers?.name??"—"}</strong><small>{order.customers?.phone??""}</small></div><div className="report-card"><span>Valor estimado</span><strong>{money(Number(order.estimated_total))}</strong></div><div className="report-card"><span>CPF</span><strong>{order.customers?.cpf||"—"}</strong></div></div>
  <section className="panel os-service-summary"><h3>Serviço solicitado / O que precisa ser feito</h3><strong>{order.title||"Serviço não informado"}</strong>{order.description&&<><h4>Detalhamento e orientações</h4><p>{order.description}</p></>}</section>
  {order.category==="firearm_process"&&<section className="panel os-firearm-details">
- <h3>Dados do cliente — processo CR/CAC</h3>
+ <h3>Dados do cliente — {order.process_type==="possession"?"Posse":order.process_type==="carry"?"Porte":"CR/CAC"}</h3>
  <div className="os-data-grid">
   <div className="os-data-item os-data-wide"><span>Nome completo:</span><strong>{order.customers?.name||"—"}</strong></div>
   <div className="os-data-item"><span>CPF:</span><strong>{order.customers?.cpf||"—"}</strong></div>
@@ -698,6 +698,7 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
   const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [draft, setDraft] = useState<NewCustomerDraft>({ name: "", phone: "", email: "", cpf: "", address: "" });
   const [category, setCategory] = useState("maintenance");
+  const [processType,setProcessType] = useState("cr_cac");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [equipment, setEquipment] = useState("");
@@ -769,6 +770,7 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
       const { data: order, error: orderError } = await supabase.from("service_orders").insert({
         customer_id: customer.id,
         category,
+        process_type: category === "firearm_process" ? processType : null,
         title: title.trim(),
         description: description.trim() || null,
         equipment: equipment.trim() || null,
@@ -858,6 +860,7 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
         <option value="maintenance">Manutenção</option><option value="graphic">Serviços gráficos</option><option value="printing_3d">Impressão 3D</option><option value="firearm_process">Processos CR / Posse / Porte</option>
       </select></div>
       <div className="form-field"><label>Serviço solicitado</label><input value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Ex.: Manutenção de notebook, cartões de visita..."/></div>
+      {category === "firearm_process" && <div className="form-field"><label>Tipo de processo</label><select value={processType} onChange={e=>setProcessType(e.target.value)}><option value="cr_cac">CR / CAC</option><option value="possession">Posse</option><option value="carry">Porte</option></select></div>}
       {category === "firearm_process" && <section className="firearm-form-section">
         <h3>Dados complementares do processo — CR/CAC</h3>
         <p>Preencha com as informações fornecidas pelo cliente. Os dados ficam vinculados ao cadastro dele.</p>
