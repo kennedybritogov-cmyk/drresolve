@@ -176,7 +176,7 @@ function DashboardApp({ email }: { email: string }) {
         <div className="content">
           {notice && <div className="notice"><CheckCircle2 size={17}/>{notice}<button onClick={() => setNotice("")}><X size={16}/></button></div>}
           {page === "dashboard" && <Dashboard period={period} setPeriod={setPeriod} setPage={changePage} setShowNewSale={setShowNewSale} setShowNewOrder={setShowNewOrder} setShowQuickActions={setShowQuickActions} orders={orders}/>}
-          {page === "pdv" && <CashRegisterPage />}
+          {page === "pdv" && <CashRegisterPage onNewSale={() => setShowNewSale(true)} onNewOrder={() => setShowNewOrder(true)} />}
           {page === "ordens" && <OrdersPage orders={filteredOrders} search={search} setSearch={setSearch} onNew={() => setShowNewOrder(true)} onRefresh={() => void loadOrders()} />}
           {page === "producao" && <ProductionPage orders={orders.filter((o) => o.category === "Serviços gráficos")} onRefresh={() => void loadOrders()} />}
           {page === "clientes" && <CustomersPage />}
@@ -351,7 +351,7 @@ function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
   setBusy(false);onSaved();
  }
  const methodLabel=(m:string)=>({cash:"Dinheiro",pix:"PIX",debit_card:"Débito",credit_card:"Crédito",bank_transfer:"Transferência",other:"Outro"} as Record<string,string>)[m]??m;
- return <Modal title="PDV — Nova venda" onClose={onClose}><form onSubmit={save}>
+ return <div className="modal-backdrop sale-screen-backdrop"><div className="modal sale-screen"><div className="modal-header"><div><h2>PDV · Nova venda</h2><p>Adicione produtos e serviços e conclua o recebimento.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20}/></button></div><form onSubmit={save} className="sale-screen-form">
   <p className="modal-copy">Monte o carrinho, escolha o cliente e distribua o pagamento. A venda será vinculada ao caixa aberto.</p>
   {customers.length>0&&<label className="auth-field">Cliente (opcional)<select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Venda sem cliente identificado</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}{c.phone?" — "+c.phone:""}</option>)}</select></label>}
   <div className="panel" style={{padding:14,margin:"14px 0"}}>
@@ -389,7 +389,7 @@ type CashRegister = {
 };
 type CashMovement = { id: string; movement_type: "cash_in" | "cash_out"; amount: number; description: string; payment_method: string; created_at: string };
 
-function CashRegisterPage() {
+function CashRegisterPage({onNewSale,onNewOrder}:{onNewSale:()=>void;onNewOrder:()=>void}) {
   const [register, setRegister] = useState<CashRegister | null>(null);
   const [history, setHistory] = useState<CashRegister[]>([]);
   const [movements, setMovements] = useState<CashMovement[]>([]);
@@ -490,7 +490,7 @@ function CashRegisterPage() {
   }
 
   return <>
-    <div className="page-heading"><div><div className="eyebrow">PDV · CONTROLE FINANCEIRO</div><h1>Frente de <span>caixa</span></h1><p>Abertura, movimentações e fechamento do caixa.</p></div><button className="secondary-button" onClick={()=>void load()}><Activity size={16}/> Atualizar</button></div>
+    <div className="page-heading"><div><div className="eyebrow">PDV · CONTROLE FINANCEIRO</div><h1>Frente de <span>caixa</span></h1><p>Abertura, movimentações e fechamento do caixa.</p></div><div className="heading-actions"><button className="primary-button" onClick={onNewSale}><ShoppingBag size={16}/> Nova venda</button><button className="secondary-button" onClick={onNewOrder}><ClipboardList size={16}/> Nova ordem de serviço</button><button className="secondary-button" onClick={()=>void load()}><Activity size={16}/> Atualizar</button></div></div>
     {message&&<div className="notice"><CheckCircle2 size={17}/>{message}</div>}
     {error&&<div className="auth-error" role="alert">{error}</div>}
     {loading?<div className="panel empty-state">Carregando informações do caixa...</div>:!register?
@@ -505,7 +505,7 @@ function CashRegisterPage() {
     :
       <>
         <section className="panel" style={{padding:22,marginBottom:18}}>
-          <div className="panel-heading"><div><h3>Caixa #{register.register_number} <span className="status-pill success">Aberto</span></h3><p>Aberto em {new Date(register.opened_at).toLocaleString("pt-BR")}</p></div><div style={{display:"flex",alignItems:"center",gap:16}}><strong style={{fontSize:22}}>{money(expectedCash)}</strong><button className="primary-button" onClick={()=>setShowSaleScreen(true)}><ShoppingBag size={16}/> PDV — Iniciar venda</button></div></div>
+          <div className="panel-heading"><div><h3>Caixa #{register.register_number} <span className="status-pill success">Aberto</span></h3><p>Aberto em {new Date(register.opened_at).toLocaleString("pt-BR")}</p></div><div style={{display:"flex",alignItems:"center",gap:16}}><strong style={{fontSize:22}}>{money(expectedCash)}</strong><button className="primary-button" onClick={onNewSale}><ShoppingBag size={16}/> PDV — Iniciar venda</button></div></div>
           <div className="metrics-grid">
             <Metric icon={<Wallet/>} label="Fundo inicial" value={money(Number(register.opening_amount))} change="Abertura" detail="Dinheiro inicial"/>
             <Metric icon={<CircleDollarSign/>} label="Vendas recebidas" value={money(totalSales)} change="Registradas" detail="Pagamentos vinculados a vendas"/>
@@ -546,7 +546,7 @@ function CashRegisterPage() {
     <section className="panel" style={{padding:22,marginTop:18}}>
       <div className="panel-heading"><div><h3>Últimos fechamentos</h3><p>Histórico dos caixas encerrados.</p></div></div>
       {history.length===0?<div className="empty-state">Nenhum fechamento registrado ainda.</div>:<div className="table-wrap"><table><thead><tr><th>CAIXA</th><th>ABERTURA</th><th>FECHAMENTO</th><th>ESPERADO</th><th>CONTADO</th><th>DIFERENÇA</th></tr></thead><tbody>{history.map(h=><tr key={h.id}><td>#{h.register_number}</td><td>{new Date(h.opened_at).toLocaleString("pt-BR")}</td><td>{h.closed_at?new Date(h.closed_at).toLocaleString("pt-BR"):"—"}</td><td>{money(Number(h.closing_expected??0))}</td><td>{money(Number(h.closing_counted??0))}</td><td className="table-value">{money(Number(h.closing_difference??0))}</td></tr>)}</tbody></table></div>}
-    {showSaleScreen && <NewSaleModal onClose={()=>setShowSaleScreen(false)} onSaved={()=>{setShowSaleScreen(false);setMessage("Venda registrada e vinculada ao caixa aberto.");void load();}} />}
+    
     </section>
   </>;
 }
@@ -831,7 +831,7 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
     }
   }
 
-  return <Modal title="Nova ordem de serviço" onClose={onClose}>
+  return <div className="modal-backdrop modal-os-backdrop"><div className="modal modal-os-full"><div className="modal-header"><h2>Nova ordem de serviço</h2><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={19}/></button></div>
     <form onSubmit={save}>
       <div className="form-field">
         <label>Cliente *</label>
