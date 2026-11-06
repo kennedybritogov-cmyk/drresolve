@@ -746,6 +746,8 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
     [c.name, c.phone ?? "", c.email ?? "", c.cpf ?? ""].join(" ").toLowerCase().includes(customerSearch.toLowerCase())
   ).slice(0, 8);
 
+  useEffect(()=>{let active=true;async function loadProfile(){if(!supabase||!selectedCustomer||category!=="firearm_process")return;const [{data:p},{data:c}]=await Promise.all([supabase.from("customer_firearm_profiles").select("*").eq("customer_id",selectedCustomer.id).maybeSingle(),supabase.from("customers").select("email,address,cpf").eq("id",selectedCustomer.id).single()]);if(!active)return;if(p){setBirthDate(p.birth_date||"");setRg(p.rg||"");setRgIssuedOn(p.rg_issued_on||"");setRgIssuer(p.rg_issuer||"");setVoterRegistration(p.voter_registration||"");setFatherName(p.father_name||"");setMotherName(p.mother_name||"");setPostalCode(p.postal_code||"");setEducation(p.education||"");setProfession(p.profession||"");setMaritalStatus(p.marital_status||"");setNationality(p.nationality||"Brasileira");setConsentRecorded(Boolean(p.consent_recorded));}if(c){setFirearmEmail(c.email||"");setFirearmAddress(c.address||"");}}void loadProfile();return()=>{active=false;};},[selectedCustomer,category]);
+
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
@@ -833,12 +835,12 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
         <label>Cliente *</label>
         {selectedCustomer ? <div className="selected-customer"><div><strong>{selectedCustomer.name}</strong><small>{selectedCustomer.phone || selectedCustomer.email || "Cliente selecionado"}</small></div><button type="button" className="secondary-button" onClick={() => { setSelectedCustomer(null); setCustomerSearch(""); }}>Trocar</button></div> :
           <>
-            <label className="search-box customer-picker-search"><Search size={16}/><input value={customerSearch} onChange={(e) => { setCustomerSearch(e.target.value); setCreatingCustomer(false); }} placeholder="Buscar por nome, telefone, e-mail ou CPF"/></label>
+            <label className="search-box customer-picker-search"><Search size={16}/><input value={customerSearch} onChange={(e) => { setCustomerSearch(e.target.value); setCreatingCustomer(false); }} onKeyDown={e=>{if(e.key==="Enter"&&customerSearch.trim()&&matches.length===0){e.preventDefault();setDraft({name:customerSearch.trim(),phone:"",email:"",cpf:"",address:""});setCreatingCustomer(true);}}} placeholder="Buscar por nome, telefone, e-mail ou CPF"/></label>
             {customerSearch.trim() && <div className="customer-picker-results">
               {matches.map((c) => <button type="button" key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearch(""); }}><strong>{c.name}</strong><small>{c.phone || c.email || c.cpf || "Sem contato informado"}</small></button>)}
-              {matches.length === 0 && <p>Nenhum cliente encontrado com essa busca.</p>}
+              {matches.length === 0 && <div className="customer-no-match"><p>Nenhum cliente encontrado.</p><button type="button" className="secondary-button" onClick={()=>{setDraft({name:customerSearch.trim(),phone:"",email:"",cpf:"",address:""});setCreatingCustomer(true);}}>Cadastrar este cliente</button><small>Você também pode pressionar Enter para iniciar o cadastro.</small></div>}
             </div>}
-            <button type="button" className="text-action" onClick={() => { setCreatingCustomer(true); setSelectedCustomer(null); }}>+ Cadastrar novo cliente</button>
+            
           </>
         }
       </div>
