@@ -224,31 +224,73 @@ function ProductionPage({ orders }: { orders: typeof initialOrders }) {
 function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
  type CatalogItem={id:string;name:string;description:string|null;category:string;unit_price:number};
  type CustomerOption={id:string;name:string;phone:string|null};
- const [items,setItems]=useState<CatalogItem[]>([]); const [customers,setCustomers]=useState<CustomerOption[]>([]); const [customerId,setCustomerId]=useState("");
- const [selected,setSelected]=useState("");
- const [manual,setManual]=useState(true);
- const [description,setDescription]=useState("");
- const [qty,setQty]=useState("1"); const [price,setPrice]=useState(""); const [discount,setDiscount]=useState("0");
- const [method,setMethod]=useState("cash"); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
- useEffect(()=>{let active=true;async function loadItems(){if(!supabase)return;const [{data},{data:customerData}]=await Promise.all([supabase.from("catalog_items").select("id,name,description,category,unit_price").eq("is_active",true).order("name"),supabase.from("customers").select("id,name,phone").eq("is_active",true).order("name")]);if(active){setItems((data??[]) as CatalogItem[]);setCustomers((customerData??[]) as CustomerOption[]);}}void loadItems();return()=>{active=false;};},[]);
- const total=Math.max(0,Number(qty||0)*Number(price||0)-Number(discount||0));
- function chooseItem(id:string){setSelected(id);const item=items.find(x=>x.id===id);if(item){setManual(false);setDescription(item.name);setPrice(String(item.unit_price));}}
- async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;if(!description.trim()||Number(qty)<=0||Number(price)<=0||Number(discount)<0||total<=0){setError("Confira a descrição, quantidade, preço e desconto.");return;}setBusy(true);setError("");
- const {data:reg,error:re}=await supabase.from("cash_registers").select("id").eq("status","open").maybeSingle();if(re||!reg){setError("Não há caixa aberto. Abra o caixa antes de vender.");setBusy(false);return;}
- const {data:user}=await supabase.auth.getUser();
- const {data:sale,error:se}=await supabase.from("sales").insert({cash_register_id:reg.id,customer_id:customerId||null,status:"paid",subtotal:Number(qty)*Number(price),discount:Number(discount||0),total,created_by:user.user?.id??null}).select("id").single();
- if(se||!sale){setError("Não foi possível registrar a venda: "+(se?.message??"erro desconhecido"));setBusy(false);return;}
- const {error:ie}=await supabase.from("sale_items").insert({sale_id:sale.id,catalog_item_id:manual?null:(selected||null),description:description.trim(),quantity:Number(qty),unit_price:Number(price),discount:Number(discount||0)});
- if(ie){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar item."}).eq("id",sale.id);setError("Falha ao salvar o item: "+ie.message);setBusy(false);return;}
- const {error:pe}=await supabase.from("sale_payments").insert({sale_id:sale.id,method,amount:total,status:"confirmed",paid_at:new Date().toISOString()});
- if(pe){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar pagamento."}).eq("id",sale.id);setError("Falha ao salvar o pagamento: "+pe.message);setBusy(false);return;}setBusy(false);onSaved();}
- return <Modal title="PDV — Registrar venda" onClose={onClose}><form onSubmit={save}><p className="modal-copy">Selecione um cliente (opcional), escolha um item do catálogo ou digite um serviço avulso. A venda será vinculada ao caixa aberto.</p>\n {customers.length>0&&<label className="auth-field">Cliente (opcional)<select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Venda sem cliente identificado</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}{c.phone?" — "+c.phone:""}</option>)}</select></label>}
- {items.length>0&&<label className="auth-field">Selecionar produto ou serviço cadastrado<select value={selected} onChange={e=>chooseItem(e.target.value)}><option value="">Escolher no catálogo...</option>{items.map(item=><option key={item.id} value={item.id}>{item.name} — {money(Number(item.unit_price))}</option>)}</select></label>}
- <div style={{display:"flex",gap:8,alignItems:"center",margin:"12px 0"}}><button type="button" className={manual?"primary-button":"secondary-button"} onClick={()=>{setManual(true);setSelected("");setDescription("");setPrice("");}}>Digitar serviço</button>{items.length>0&&<button type="button" className={!manual?"primary-button":"secondary-button"} onClick={()=>setManual(false)}>Usar catálogo</button>}</div>
- <label className="auth-field">Descrição do produto ou serviço<input required value={description} onChange={e=>{setDescription(e.target.value);setManual(true);setSelected("");}} placeholder="Digite o serviço ou produto"/></label>
- <div className="customer-form-grid"><label className="auth-field">Quantidade<input required type="number" min="0.01" step="0.01" value={qty} onChange={e=>setQty(e.target.value)}/></label><label className="auth-field">Valor unitário (R$)<input required type="number" min="0.01" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></label><label className="auth-field">Desconto (R$)<input type="number" min="0" step="0.01" value={discount} onChange={e=>setDiscount(e.target.value)}/></label><label className="auth-field">Forma de pagamento<select value={method} onChange={e=>setMethod(e.target.value)}><option value="cash">Dinheiro</option><option value="pix">PIX</option><option value="debit_card">Débito</option><option value="credit_card">Crédito</option><option value="bank_transfer">Transferência</option><option value="other">Outro</option></select></label></div>
- <div className="report-card"><span>Total da venda</span><strong>{money(total)}</strong></div>{error&&<div className="auth-error">{error}</div>}
- <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy?"Salvando...":"Confirmar venda"}</button></div></form></Modal>;
+ type CartLine={catalog_item_id:string|null;description:string;quantity:string;unit_price:string;discount:string};
+ type PaymentLine={method:string;amount:string};
+ const [items,setItems]=useState<CatalogItem[]>([]);
+ const [customers,setCustomers]=useState<CustomerOption[]>([]);
+ const [customerId,setCustomerId]=useState("");
+ const [cart,setCart]=useState<CartLine[]>([{catalog_item_id:null,description:"",quantity:"1",unit_price:"",discount:"0"}]);
+ const [payments,setPayments]=useState<PaymentLine[]>([{method:"cash",amount:""}]);
+ const [busy,setBusy]=useState(false); const [error,setError]=useState("");
+ useEffect(()=>{let active=true;async function load(){if(!supabase)return;const [{data},{data:customerData}]=await Promise.all([supabase.from("catalog_items").select("id,name,description,category,unit_price").eq("is_active",true).order("name"),supabase.from("customers").select("id,name,phone").eq("is_active",true).order("name")]);if(active){setItems((data??[]) as CatalogItem[]);setCustomers((customerData??[]) as CustomerOption[]);}}void load();return()=>{active=false;};},[]);
+ const lineTotal=(line:CartLine)=>Math.max(0,Number(line.quantity||0)*Number(line.unit_price||0)-Number(line.discount||0));
+ const subtotal=cart.reduce((sum,line)=>sum+Number(line.quantity||0)*Number(line.unit_price||0),0);
+ const discountTotal=cart.reduce((sum,line)=>sum+Number(line.discount||0),0);
+ const total=Math.max(0,subtotal-discountTotal);
+ const paid=payments.reduce((sum,p)=>sum+Number(p.amount||0),0);
+ const remaining=total-paid;
+ function updateLine(index:number,patch:Partial<CartLine>){setCart(old=>old.map((line,i)=>i===index?{...line,...patch}:line));}
+ function selectCatalog(index:number,id:string){const item=items.find(x=>x.id===id);updateLine(index,{catalog_item_id:id||null,description:item?.name??"",unit_price:item?String(item.unit_price):""});}
+ function updatePayment(index:number,patch:Partial<PaymentLine>){setPayments(old=>old.map((p,i)=>i===index?{...p,...patch}:p));}
+ async function save(e:React.FormEvent<HTMLFormElement>){
+  e.preventDefault();if(!supabase)return;
+  if(cart.some(line=>!line.description.trim()||Number(line.quantity)<=0||Number(line.unit_price)<=0||Number(line.discount)<0||lineTotal(line)<=0)){setError("Revise os itens: descrição, quantidade, preço e desconto devem ser válidos.");return;}
+  if(total<=0||Math.abs(remaining)>0.009||payments.some(p=>Number(p.amount)<=0)){setError("A soma dos pagamentos deve ser exatamente igual ao total da venda.");return;}
+  setBusy(true);setError("");
+  const {data:reg,error:re}=await supabase.from("cash_registers").select("id").eq("status","open").maybeSingle();
+  if(re||!reg){setError("Não há caixa aberto. Abra o caixa antes de vender.");setBusy(false);return;}
+  const {data:user}=await supabase.auth.getUser();
+  const {data:sale,error:se}=await supabase.from("sales").insert({cash_register_id:reg.id,customer_id:customerId||null,status:"pending",subtotal,discount:discountTotal,total,created_by:user.user?.id??null}).select("id").single();
+  if(se||!sale){setError("Não foi possível criar a venda: "+(se?.message??"erro desconhecido"));setBusy(false);return;}
+  const saleItems=cart.map(line=>({sale_id:sale.id,catalog_item_id:line.catalog_item_id,description:line.description.trim(),quantity:Number(line.quantity),unit_price:Number(line.unit_price),discount:Number(line.discount||0)}));
+  const {error:ie}=await supabase.from("sale_items").insert(saleItems);
+  if(ie){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar itens da venda: "+ie.message}).eq("id",sale.id);setError("Não foi possível salvar os itens: "+ie.message);setBusy(false);return;}
+  const salePayments=payments.map(p=>({sale_id:sale.id,method:p.method,amount:Number(p.amount),status:"confirmed",paid_at:new Date().toISOString()}));
+  const {error:pe}=await supabase.from("sale_payments").insert(salePayments);
+  if(pe){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar pagamentos: "+pe.message}).eq("id",sale.id);setError("Não foi possível salvar os pagamentos: "+pe.message);setBusy(false);return;}
+  const {error:paidError}=await supabase.from("sales").update({status:"paid"}).eq("id",sale.id);
+  if(paidError){setError("Venda e pagamentos foram registrados, mas não foi possível concluir o status: "+paidError.message);setBusy(false);return;}
+  setBusy(false);onSaved();
+ }
+ const methodLabel=(m:string)=>({cash:"Dinheiro",pix:"PIX",debit_card:"Débito",credit_card:"Crédito",bank_transfer:"Transferência",other:"Outro"} as Record<string,string>)[m]??m;
+ return <Modal title="PDV — Nova venda" onClose={onClose}><form onSubmit={save}>
+  <p className="modal-copy">Monte o carrinho, escolha o cliente e distribua o pagamento. A venda será vinculada ao caixa aberto.</p>
+  {customers.length>0&&<label className="auth-field">Cliente (opcional)<select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Venda sem cliente identificado</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}{c.phone?" — "+c.phone:""}</option>)}</select></label>}
+  <div className="panel" style={{padding:14,margin:"14px 0"}}>
+   <div className="panel-heading"><div><h3>Itens da venda</h3><p>Adicione quantos produtos ou serviços precisar.</p></div><button type="button" className="secondary-button" onClick={()=>setCart(old=>[...old,{catalog_item_id:null,description:"",quantity:"1",unit_price:"",discount:"0"}])}><Plus size={15}/> Adicionar item</button></div>
+   {cart.map((line,index)=><div key={index} className="customer-form-grid" style={{borderTop:"1px solid var(--border,#e8eaf0)",paddingTop:12,marginTop:12}}>
+    {items.length>0&&<label className="auth-field wide">Buscar no catálogo<select value={line.catalog_item_id??""} onChange={e=>selectCatalog(index,e.target.value)}><option value="">Item manual / serviço avulso</option>{items.map(item=><option key={item.id} value={item.id}>{item.name} — {money(Number(item.unit_price))}</option>)}</select></label>}
+    <label className="auth-field wide">Descrição<input required value={line.description} onChange={e=>updateLine(index,{description:e.target.value,catalog_item_id:null})} placeholder="Produto ou serviço"/></label>
+    <label className="auth-field">Quantidade<input required type="number" min="0.01" step="0.01" value={line.quantity} onChange={e=>updateLine(index,{quantity:e.target.value})}/></label>
+    <label className="auth-field">Valor unitário (R$)<input required type="number" min="0.01" step="0.01" value={line.unit_price} onChange={e=>updateLine(index,{unit_price:e.target.value})}/></label>
+    <label className="auth-field">Desconto (R$)<input type="number" min="0" step="0.01" value={line.discount} onChange={e=>updateLine(index,{discount:e.target.value})}/></label>
+    <div className="auth-field"><span>Total do item</span><strong>{money(lineTotal(line))}</strong></div>
+    {cart.length>1&&<div className="wide" style={{textAlign:"right"}}><button type="button" className="secondary-button" onClick={()=>setCart(old=>old.filter((_,i)=>i!==index))}><X size={14}/> Remover item</button></div>}
+   </div>)}
+   <div className="report-card" style={{marginTop:14}}><span>Total da venda</span><strong>{money(total)}</strong><small>Subtotal {money(subtotal)} · Descontos {money(discountTotal)}</small></div>
+  </div>
+  <div className="panel" style={{padding:14,marginBottom:14}}>
+   <div className="panel-heading"><div><h3>Formas de pagamento</h3><p>É possível dividir o valor entre vários meios.</p></div><button type="button" className="secondary-button" onClick={()=>setPayments(old=>[...old,{method:"pix",amount:""}])}><Plus size={15}/> Adicionar pagamento</button></div>
+   {payments.map((p,index)=><div key={index} className="customer-form-grid" style={{borderTop:"1px solid var(--border,#e8eaf0)",paddingTop:10,marginTop:10}}>
+    <label className="auth-field">Forma<select value={p.method} onChange={e=>updatePayment(index,{method:e.target.value})}><option value="cash">Dinheiro</option><option value="pix">PIX</option><option value="debit_card">Cartão de débito</option><option value="credit_card">Cartão de crédito</option><option value="bank_transfer">Transferência</option><option value="other">Outro</option></select></label>
+    <label className="auth-field">Valor (R$)<input required type="number" min="0.01" step="0.01" value={p.amount} onChange={e=>updatePayment(index,{amount:e.target.value})}/></label>
+    {payments.length>1&&<div className="wide" style={{textAlign:"right"}}><button type="button" className="secondary-button" onClick={()=>setPayments(old=>old.filter((_,i)=>i!==index))}><X size={14}/> Remover pagamento</button></div>}
+   </div>)}
+   <div style={{display:"flex",justifyContent:"space-between",gap:12,marginTop:14}}><span>Total pago: {money(paid)}</span><strong style={{color:Math.abs(remaining)<0.009?"#16834a":remaining<0?"#c43d3d":"inherit"}}>{Math.abs(remaining)<0.009?"Pagamento conferido":remaining>0?"Falta pagar: "+money(remaining):"Excedente: "+money(Math.abs(remaining))}</strong></div>
+  </div>
+  {error&&<div className="auth-error" role="alert">{error}</div>}
+  <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy?"Registrando...":"Finalizar venda"}</button></div>
+ </form></Modal>;
 }
 
 type CashRegister = {
