@@ -99,6 +99,7 @@ function DashboardApp({ email }: { email: string }) {
   const [period, setPeriod] = useState("Este mês");
   const [showNewSale, setShowNewSale] = useState(false);
   const [showNewOrder, setShowNewOrder] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const [orders, setOrders] = useState(initialOrders);
   const [notice, setNotice] = useState("");
 
@@ -108,7 +109,7 @@ function DashboardApp({ email }: { email: string }) {
       .select("id,order_number,category,status,title,estimated_total,final_total,created_at,customers(name)")
       .order("created_at",{ascending:false}).limit(300);
     if (error) { setNotice("Não foi possível atualizar as ordens de serviço: "+error.message); return; }
-    const categoryLabels:Record<string,string>={maintenance:"Manutenção",graphic:"Serviços gráficos",printing_3d:"Impressão 3D",firearm_process:"Processo CR/CAC"};
+    const categoryLabels:Record<string,string>={maintenance:"Manutenção",graphic:"Serviços gráficos",printing_3d:"Impressão 3D",firearm_process:"Processos CR / Posse / Porte"};
     const statusLabels:Record<string,string>={open:"Aguardando",waiting:"Aguardando",in_progress:"Em andamento",awaiting_approval:"Aguardando aprovação",awaiting_pickup:"Pronto",completed:"Concluído",cancelled:"Cancelado"};
     setOrders((data??[]).map((row:any)=>({
       id:"OS-"+String(row.order_number).padStart(6,"0"),
@@ -117,7 +118,7 @@ function DashboardApp({ email }: { email: string }) {
       category:categoryLabels[row.category]??row.category,
       status:statusLabels[row.status]??row.status,
       date:new Date(row.created_at).toLocaleString("pt-BR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}),
-      value:Number(row.final_total||row.estimated_total||0)
+      value:Number(row.estimated_total||0)
     })) as typeof initialOrders);
   }
   useEffect(()=>{void loadOrders();},[]);
@@ -174,7 +175,7 @@ function DashboardApp({ email }: { email: string }) {
 
         <div className="content">
           {notice && <div className="notice"><CheckCircle2 size={17}/>{notice}<button onClick={() => setNotice("")}><X size={16}/></button></div>}
-          {page === "dashboard" && <Dashboard period={period} setPeriod={setPeriod} setPage={changePage} setShowNewSale={setShowNewSale} setShowNewOrder={setShowNewOrder} orders={orders}/>}
+          {page === "dashboard" && <Dashboard period={period} setPeriod={setPeriod} setPage={changePage} setShowNewSale={setShowNewSale} setShowNewOrder={setShowNewOrder} setShowQuickActions={setShowQuickActions} orders={orders}/>}
           {page === "pdv" && <CashRegisterPage />}
           {page === "ordens" && <OrdersPage orders={filteredOrders} search={search} setSearch={setSearch} onNew={() => setShowNewOrder(true)} onRefresh={() => void loadOrders()} />}
           {page === "producao" && <ProductionPage orders={orders.filter((o) => o.category === "Serviços gráficos")} />}
@@ -185,15 +186,16 @@ function DashboardApp({ email }: { email: string }) {
         </div>
       </main>
 
+      {showQuickActions && <Modal title="PDV / Vendas" onClose={() => setShowQuickActions(false)}><div className="quick-action-options"><button className="primary-button" onClick={() => { setShowQuickActions(false); setShowNewSale(true); }}><ShoppingBag size={17}/> Nova venda</button><button className="secondary-button" onClick={() => { setShowQuickActions(false); setShowNewOrder(true); }}><ClipboardList size={17}/> Nova ordem de serviço</button></div></Modal>}
       {showNewSale && <NewSaleModal onClose={() => setShowNewSale(false)} onSaved={() => { setShowNewSale(false); setNotice("Venda registrada no caixa aberto."); }} />}
       {showNewOrder && <NewServiceOrderModal onClose={() => setShowNewOrder(false)} onSaved={(number) => { setShowNewOrder(false); setNotice(`OS #${number} criada com sucesso.`); void loadOrders(); }} />}
     </div>
   );
 }
 
-function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder, orders }: {
+function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder, setShowQuickActions, orders }: {
   period: string; setPeriod: (value: string) => void; setPage: (value: PageKey) => void;
-  setShowNewSale: (value: boolean) => void; setShowNewOrder: (value: boolean) => void;
+  setShowNewSale: (value: boolean) => void; setShowNewOrder: (value: boolean) => void; setShowQuickActions: (value: boolean) => void;
   orders: typeof initialOrders;
 }) {
  const [goalTab,setGoalTab]=useState("Diária");
@@ -224,13 +226,14 @@ function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder
  const orderOpen=orders.filter(o=>!["Pronto","Concluído","Cancelado"].includes(o.status)).length;
  const graphicOrders=orders.filter(o=>o.category==="Serviços gráficos"&&!["Pronto","Concluído","Cancelado"].includes(o.status)).length;
  const goalStart=new Date(now);if(goalTab==="Diária")goalStart.setHours(0,0,0,0);else if(goalTab==="Semanal"){goalStart.setDate(goalStart.getDate()-((goalStart.getDay()+6)%7));goalStart.setHours(0,0,0,0);}else{goalStart.setDate(1);goalStart.setHours(0,0,0,0);}
- const goalRevenue=sales.filter(s=>s.status==="paid"&&new Date(s.created_at)>=goalStart&&new Date(s.created_at)<=end).reduce((sum,s)=>sum+Number(s.total),0);
- const goals={Diária:{target:goalTargets.Diária,current:goalTab==="Diária"?goalRevenue:goalRevenue},Semanal:{target:goalTargets.Semanal,current:goalRevenue},Mensal:{target:goalTargets.Mensal,current:goalRevenue}};
+ const goalEnd=new Date(now);goalEnd.setHours(23,59,59,999);
+ const goalRevenue=sales.filter(s=>s.status==="paid"&&new Date(s.created_at)>=goalStart&&new Date(s.created_at)<=goalEnd).reduce((sum,s)=>sum+Number(s.total),0);
+ const goals={Diária:{target:goalTargets.Diária,current:goalTab==="Diária"?goalRevenue:0},Semanal:{target:goalTargets.Semanal,current:goalTab==="Semanal"?goalRevenue:0},Mensal:{target:goalTargets.Mensal,current:goalTab==="Mensal"?goalRevenue:0}};
  const goal=goals[goalTab as keyof typeof goals];const progress=goal.target>0?Math.min(100,Math.round(goal.current/goal.target*100)):0;
  const revenueLabel=money(revenue);
  const dateLabel=now.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
  return <>
-  <div className="page-heading"><div><div className="eyebrow">{dateLabel.toUpperCase()}</div><h1>Bom dia! <span>Vamos resolver?</span></h1><p>Acompanhe o movimento e mantenha sua operação em dia.</p></div><div className="heading-actions"><button className="secondary-button" onClick={()=>setShowNewOrder(true)}><Plus size={16}/> Nova OS</button><button className="primary-button" onClick={()=>setShowNewSale(true)}><Plus size={16}/> Nova venda</button></div></div>
+  <div className="page-heading"><div><div className="eyebrow">{dateLabel.toUpperCase()}</div><h1>Bom dia! <span>Vamos resolver?</span></h1><p>Acompanhe o movimento e mantenha sua operação em dia.</p></div><div className="heading-actions"><button className="primary-button" onClick={()=>setShowQuickActions(true)}><Plus size={16}/> PDV / Vendas</button></div></div>
   <div className="section-toolbar"><div><h2>Visão geral</h2><span>Resumo do desempenho da sua loja</span></div><label className="select-wrap"><CalendarDays size={16}/><select value={period} onChange={e=>setPeriod(e.target.value)}><option>Este mês</option><option>Esta semana</option><option>Hoje</option></select><ChevronDown size={14}/></label></div>
   <div className="metrics-grid">
    <Metric icon={<Wallet/>} label="Faturamento" value={loading?"Carregando...":revenueLabel} change={period} detail="Vendas pagas, sem cancelamentos"/>
@@ -238,10 +241,9 @@ function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder
    <Metric icon={<TrendingUp/>} label="Lucro bruto" value={loading?"Carregando...":money(grossProfit)} change={period} detail="Faturamento menos custos"/>
    <Metric icon={<ShoppingBag/>} label="Vendas realizadas" value={loading?"…":String(validSales.length)} change={period} detail="Vendas confirmadas no período"/>
    <Metric icon={<ClipboardList/>} label="OS em aberto" value={String(orderOpen)} change="Em atendimento" detail="Ordens não concluídas ou canceladas"/>
-   <Metric icon={<Printer/>} label="Produção gráfica" value={String(graphicOrders).padStart(2,"0")} change="Na fila" detail="Serviços gráficos pendentes"/>
+
   </div>
-  <div className="dashboard-grid">
-   <section className="panel revenue-panel"><div className="panel-heading"><div><h3>Faturamento</h3><p>Receita de vendas pagas no período selecionado</p></div><button className="more-button" onClick={()=>setPage("relatorios")}>Ver relatório <ChevronRight size={15}/></button></div><div className="revenue-total"><strong>{loading?"Carregando...":revenueLabel}</strong><span>{validSales.length} vendas</span></div><div className="empty-state" style={{padding:24}}>Os indicadores são calculados a partir das vendas registradas no sistema. Consulte Relatórios para ver o detalhamento.</div></section>
+  <div className="dashboard-grid dashboard-goals-only">
    <section className="panel goals-panel"><div className="panel-heading"><div><h3>Metas de faturamento</h3><p>Objetivos configurados no sistema</p></div><Target size={19} className="muted-icon"/></div><div className="goal-tabs">{(["Diária","Semanal","Mensal"] as const).map(tab=><button className={goalTab===tab?"selected":""} onClick={()=>setGoalTab(tab)} key={tab}>{tab}</button>)}</div><div className="goal-amount"><strong>{money(goal.current)}</strong><span>de {money(goal.target)}</span></div><div className="progress-track"><div style={{width:`${progress}%`}}/></div><div className="goal-footer"><span>{progress}% atingido</span><strong>Faltam {money(Math.max(0,goal.target-goal.current))}</strong></div><div className="goal-tip"><Target size={16}/><span>{goal.target>0?(progress>=100?"Meta alcançada! Excelente trabalho.":"Continue assim! Você está no caminho da sua meta."):"Cadastre uma meta em Configurações para acompanhar seu objetivo."}</span></div></section>
   </div>
   <div className="bottom-grid">
@@ -749,7 +751,7 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
         customer = data as Customer;
       }
       if (!customer) throw new Error("Selecione um cliente ou cadastre um novo.");
-      if (!title.trim()) throw new Error("Informe o serviço solicitado.");
+
       const { data: order, error: orderError } = await supabase.from("service_orders").insert({
         customer_id: customer.id,
         category,
@@ -839,9 +841,9 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
         </div>
       </section>}
       <div className="form-field"><label>Categoria *</label><select value={category} onChange={(e)=>setCategory(e.target.value)}>
-        <option value="maintenance">Manutenção</option><option value="graphic">Serviços gráficos</option><option value="printing_3d">Impressão 3D</option><option value="firearm_process">Processos de CR/CAC</option>
+        <option value="maintenance">Manutenção</option><option value="graphic">Serviços gráficos</option><option value="printing_3d">Impressão 3D</option><option value="firearm_process">Processos CR / Posse / Porte</option>
       </select></div>
-      <div className="form-field"><label>Serviço solicitado *</label><input required value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Ex.: Manutenção de notebook, cartões de visita..."/></div>
+      <div className="form-field"><label>Serviço solicitado</label><input value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Ex.: Manutenção de notebook, cartões de visita..."/></div>
       {category === "firearm_process" && <section className="firearm-form-section">
         <h3>Dados complementares do processo — CR/CAC</h3>
         <p>Preencha com as informações fornecidas pelo cliente. Os dados ficam vinculados ao cadastro dele.</p>
