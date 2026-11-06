@@ -222,23 +222,34 @@ function ProductionPage({ orders }: { orders: typeof initialOrders }) {
 
 
 function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
- const [description,setDescription]=useState(""); const [qty,setQty]=useState("1"); const [price,setPrice]=useState(""); const [discount,setDiscount]=useState("0"); const [method,setMethod]=useState("cash"); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
+ type CatalogItem={id:string;name:string;description:string|null;category:string;unit_price:number};
+ const [items,setItems]=useState<CatalogItem[]>([]);
+ const [selected,setSelected]=useState("");
+ const [manual,setManual]=useState(true);
+ const [description,setDescription]=useState("");
+ const [qty,setQty]=useState("1"); const [price,setPrice]=useState(""); const [discount,setDiscount]=useState("0");
+ const [method,setMethod]=useState("cash"); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
+ useEffect(()=>{let active=true;async function loadItems(){if(!supabase)return;const {data}=await supabase.from("catalog_items").select("id,name,description,category,unit_price").eq("is_active",true).order("name");if(active)setItems((data??[]) as CatalogItem[]);}void loadItems();return()=>{active=false;};},[]);
  const total=Math.max(0,Number(qty||0)*Number(price||0)-Number(discount||0));
- async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;if(!description.trim()||Number(qty)<=0||Number(price)<=0||total<=0){setError("Confira os dados e os valores.");return;}setBusy(true);setError("");
- const {data:reg}=await supabase.from("cash_registers").select("id").eq("status","open").maybeSingle();if(!reg){setError("Abra o caixa antes de registrar uma venda.");setBusy(false);return;}
+ function chooseItem(id:string){setSelected(id);const item=items.find(x=>x.id===id);if(item){setManual(false);setDescription(item.name);setPrice(String(item.unit_price));}}
+ async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;if(!description.trim()||Number(qty)<=0||Number(price)<=0||Number(discount)<0||total<=0){setError("Confira a descrição, quantidade, preço e desconto.");return;}setBusy(true);setError("");
+ const {data:reg,error:re}=await supabase.from("cash_registers").select("id").eq("status","open").maybeSingle();if(re||!reg){setError("Não há caixa aberto. Abra o caixa antes de vender.");setBusy(false);return;}
  const {data:user}=await supabase.auth.getUser();
  const {data:sale,error:se}=await supabase.from("sales").insert({cash_register_id:reg.id,status:"paid",subtotal:Number(qty)*Number(price),discount:Number(discount||0),total,created_by:user.user?.id??null}).select("id").single();
- if(se||!sale){setError("Não foi possível registrar a venda.");setBusy(false);return;}
- const {error:ie}=await supabase.from("sale_items").insert({sale_id:sale.id,description:description.trim(),quantity:Number(qty),unit_price:Number(price),discount:Number(discount||0)});
- if(ie){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar item."}).eq("id",sale.id);setError("Falha ao salvar o item.");setBusy(false);return;}
+ if(se||!sale){setError("Não foi possível registrar a venda: "+(se?.message??"erro desconhecido"));setBusy(false);return;}
+ const {error:ie}=await supabase.from("sale_items").insert({sale_id:sale.id,catalog_item_id:manual?null:(selected||null),description:description.trim(),quantity:Number(qty),unit_price:Number(price),discount:Number(discount||0)});
+ if(ie){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar item."}).eq("id",sale.id);setError("Falha ao salvar o item: "+ie.message);setBusy(false);return;}
  const {error:pe}=await supabase.from("sale_payments").insert({sale_id:sale.id,method,amount:total,status:"confirmed",paid_at:new Date().toISOString()});
- if(pe){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar pagamento."}).eq("id",sale.id);setError("Falha ao salvar o pagamento.");setBusy(false);return;}setBusy(false);onSaved();}
- return <Modal title="Registrar venda" onClose={onClose}><form onSubmit={save}><p className="modal-copy">A venda será vinculada ao caixa aberto.</p>
- <label className="auth-field">Produto ou serviço<input required value={description} onChange={e=>setDescription(e.target.value)}/></label>
- <div className="customer-form-grid"><label className="auth-field">Quantidade<input type="number" min="0.01" step="0.01" value={qty} onChange={e=>setQty(e.target.value)}/></label><label className="auth-field">Valor unitário (R$)<input type="number" min="0.01" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></label><label className="auth-field">Desconto (R$)<input type="number" min="0" step="0.01" value={discount} onChange={e=>setDiscount(e.target.value)}/></label><label className="auth-field">Pagamento<select value={method} onChange={e=>setMethod(e.target.value)}><option value="cash">Dinheiro</option><option value="pix">PIX</option><option value="debit_card">Débito</option><option value="credit_card">Crédito</option><option value="bank_transfer">Transferência</option><option value="other">Outro</option></select></label></div>
- <div className="report-card"><span>Total</span><strong>{money(total)}</strong></div>{error&&<div className="auth-error">{error}</div>}
+ if(pe){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar pagamento."}).eq("id",sale.id);setError("Falha ao salvar o pagamento: "+pe.message);setBusy(false);return;}setBusy(false);onSaved();}
+ return <Modal title="PDV — Registrar venda" onClose={onClose}><form onSubmit={save}><p className="modal-copy">Selecione um item do catálogo ou digite um serviço avulso. A venda será vinculada ao caixa aberto.</p>
+ {items.length>0&&<label className="auth-field">Selecionar produto ou serviço cadastrado<select value={selected} onChange={e=>chooseItem(e.target.value)}><option value="">Escolher no catálogo...</option>{items.map(item=><option key={item.id} value={item.id}>{item.name} — {money(Number(item.unit_price))}</option>)}</select></label>}
+ <div style={{display:"flex",gap:8,alignItems:"center",margin:"12px 0"}}><button type="button" className={manual?"primary-button":"secondary-button"} onClick={()=>{setManual(true);setSelected("");setDescription("");setPrice("");}}>Digitar serviço</button>{items.length>0&&<button type="button" className={!manual?"primary-button":"secondary-button"} onClick={()=>setManual(false)}>Usar catálogo</button>}</div>
+ <label className="auth-field">Descrição do produto ou serviço<input required value={description} onChange={e=>{setDescription(e.target.value);setManual(true);setSelected("");}} placeholder="Digite o serviço ou produto"/></label>
+ <div className="customer-form-grid"><label className="auth-field">Quantidade<input required type="number" min="0.01" step="0.01" value={qty} onChange={e=>setQty(e.target.value)}/></label><label className="auth-field">Valor unitário (R$)<input required type="number" min="0.01" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></label><label className="auth-field">Desconto (R$)<input type="number" min="0" step="0.01" value={discount} onChange={e=>setDiscount(e.target.value)}/></label><label className="auth-field">Forma de pagamento<select value={method} onChange={e=>setMethod(e.target.value)}><option value="cash">Dinheiro</option><option value="pix">PIX</option><option value="debit_card">Débito</option><option value="credit_card">Crédito</option><option value="bank_transfer">Transferência</option><option value="other">Outro</option></select></label></div>
+ <div className="report-card"><span>Total da venda</span><strong>{money(total)}</strong></div>{error&&<div className="auth-error">{error}</div>}
  <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy?"Salvando...":"Confirmar venda"}</button></div></form></Modal>;
 }
+
 type CashRegister = {
   id: string; register_number: number; status: "open" | "closed";
   opening_amount: number; closing_counted: number | null; closing_expected: number | null;
@@ -263,6 +274,7 @@ function CashRegisterPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [showSaleScreen, setShowSaleScreen] = useState(false);
 
   async function load() {
     if (!supabase) return;
@@ -362,7 +374,7 @@ function CashRegisterPage() {
     :
       <>
         <section className="panel" style={{padding:22,marginBottom:18}}>
-          <div className="panel-heading"><div><h3>Caixa #{register.register_number} <span className="status-pill success">Aberto</span></h3><p>Aberto em {new Date(register.opened_at).toLocaleString("pt-BR")}</p></div><strong style={{fontSize:22}}>{money(expectedCash)}</strong></div>
+          <div className="panel-heading"><div><h3>Caixa #{register.register_number} <span className="status-pill success">Aberto</span></h3><p>Aberto em {new Date(register.opened_at).toLocaleString("pt-BR")}</p></div><div style={{display:"flex",alignItems:"center",gap:16}}><strong style={{fontSize:22}}>{money(expectedCash)}</strong><button className="primary-button" onClick={()=>setShowSaleScreen(true)}><ShoppingBag size={16}/> PDV — Iniciar venda</button></div></div>
           <div className="metrics-grid">
             <Metric icon={<Wallet/>} label="Fundo inicial" value={money(Number(register.opening_amount))} change="Abertura" detail="Dinheiro inicial"/>
             <Metric icon={<CircleDollarSign/>} label="Vendas recebidas" value={money(totalSales)} change="Registradas" detail="Pagamentos vinculados a vendas"/>
@@ -403,6 +415,7 @@ function CashRegisterPage() {
     <section className="panel" style={{padding:22,marginTop:18}}>
       <div className="panel-heading"><div><h3>Últimos fechamentos</h3><p>Histórico dos caixas encerrados.</p></div></div>
       {history.length===0?<div className="empty-state">Nenhum fechamento registrado ainda.</div>:<div className="table-wrap"><table><thead><tr><th>CAIXA</th><th>ABERTURA</th><th>FECHAMENTO</th><th>ESPERADO</th><th>CONTADO</th><th>DIFERENÇA</th></tr></thead><tbody>{history.map(h=><tr key={h.id}><td>#{h.register_number}</td><td>{new Date(h.opened_at).toLocaleString("pt-BR")}</td><td>{h.closed_at?new Date(h.closed_at).toLocaleString("pt-BR"):"—"}</td><td>{money(Number(h.closing_expected??0))}</td><td>{money(Number(h.closing_counted??0))}</td><td className="table-value">{money(Number(h.closing_difference??0))}</td></tr>)}</tbody></table></div>}
+    {showSaleScreen && <NewSaleModal onClose={()=>setShowSaleScreen(false)} onSaved={()=>{setShowSaleScreen(false);setMessage("Venda registrada e vinculada ao caixa aberto.");void load();}} />}
     </section>
   </>;
 }
