@@ -154,7 +154,7 @@ function DashboardApp({ email }: { email: string }) {
         <div className="content">
           {notice && <div className="notice"><CheckCircle2 size={17}/>{notice}<button onClick={() => setNotice("")}><X size={16}/></button></div>}
           {page === "dashboard" && <Dashboard period={period} setPeriod={setPeriod} setPage={changePage} setShowNewSale={setShowNewSale} setShowNewOrder={setShowNewOrder} orders={orders}/>}
-          {page === "pdv" && <GenericPage title="PDV / Vendas" subtitle="Registre vendas de produtos e serviços em poucos passos." icon={<ShoppingBag/>} action="Nova venda" onAction={() => setShowNewSale(true)}><div className="empty-hint"><CreditCard size={28}/><strong>Frente de caixa</strong><p>O cadastro de produtos, serviços e pagamentos será implementado na próxima etapa.</p><button className="primary-button" onClick={() => setShowNewSale(true)}><Plus size={16}/> Iniciar venda</button></div></GenericPage>}
+          {page === "pdv" && <CashRegisterPage />}
           {page === "ordens" && <OrdersPage orders={filteredOrders} search={search} setSearch={setSearch} onNew={() => setShowNewOrder(true)} />}
           {page === "producao" && <ProductionPage orders={orders.filter((o) => o.category === "Serviços gráficos")} />}
           {page === "clientes" && <CustomersPage />}
@@ -218,6 +218,164 @@ function ProductionPage({ orders }: { orders: typeof initialOrders }) {
   return <><div className="page-heading"><div><div className="eyebrow">OPERAÇÃO</div><h1>Produção <span>gráfica</span></h1><p>Visualize e acompanhe a fila de produção da gráfica.</p></div><div className="heading-actions"><span className="production-date"><CalendarDays size={16}/> Hoje, 05 nov</span></div></div><div className="production-summary"><div><span>Pedidos na fila</span><strong>{orders.length.toString().padStart(2,"0")}</strong></div><div><span>Aguardando</span><strong>{orders.filter(o=>o.status==="Aguardando").length.toString().padStart(2,"0")}</strong></div><div><span>Em produção</span><strong>{orders.filter(o=>o.status==="Em andamento").length.toString().padStart(2,"0")}</strong></div><div><span>Prontos</span><strong>{orders.filter(o=>o.status==="Pronto").length.toString().padStart(2,"0")}</strong></div></div><div className="kanban">{columns.map((col) => <section className="kanban-column" key={col.name}><div className="kanban-heading"><span className={`kanban-dot ${col.color}`}/><strong>{col.name}</strong><b>{orders.filter(o=>o.status===col.name).length}</b></div>{orders.filter(o=>o.status===col.name).map((o)=><article className="production-card" key={o.id}><span className="order-id">{o.id}</span><h3>{o.service}</h3><p>{o.client}</p><div><Clock3 size={14}/> {o.date}</div><strong>{money(o.value)}</strong></article>)}{orders.filter(o=>o.status===col.name).length===0&&<div className="column-empty">Nenhum pedido nesta etapa.</div>}</section>)}</div></>;
 }
 
+
+
+type CashRegister = {
+  id: string; register_number: number; status: "open" | "closed";
+  opening_amount: number; closing_counted: number | null; closing_expected: number | null;
+  closing_difference: number | null; opening_notes: string | null; closing_notes: string | null;
+  opened_at: string; closed_at: string | null;
+};
+type CashMovement = { id: string; movement_type: "cash_in" | "cash_out"; amount: number; description: string; payment_method: string; created_at: string };
+
+function CashRegisterPage() {
+  const [register, setRegister] = useState<CashRegister | null>(null);
+  const [history, setHistory] = useState<CashRegister[]>([]);
+  const [movements, setMovements] = useState<CashMovement[]>([]);
+  const [salesPayments, setSalesPayments] = useState<{amount:number;method:string}[]>([]);
+  const [openingAmount, setOpeningAmount] = useState("0");
+  const [openingNotes, setOpeningNotes] = useState("");
+  const [movementType, setMovementType] = useState<"cash_in"|"cash_out">("cash_in");
+  const [movementAmount, setMovementAmount] = useState("");
+  const [movementDescription, setMovementDescription] = useState("");
+  const [counted, setCounted] = useState("");
+  const [closingNotes, setClosingNotes] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function load() {
+    if (!supabase) return;
+    setLoading(true); setError("");
+    const {data: openData, error: openError} = await supabase.from("cash_registers").select("*").eq("status","open").maybeSingle();
+    if (openError) { setError("Não foi possível consultar o caixa."); setLoading(false); return; }
+    const current = (openData as CashRegister | null);
+    setRegister(current);
+    const {data: oldData} = await supabase.from("cash_registers").select("*").eq("status","closed").order("closed_at",{ascending:false}).limit(10);
+    setHistory((oldData ?? []) as CashRegister[]);
+    if (current) {
+      const [{data: movementData,error: movementError},{data: saleData,error: saleError}] = await Promise.all([
+        supabase.from("cash_movements").select("id,movement_type,amount,description,payment_method,created_at").eq("cash_register_id",current.id).order("created_at",{ascending:false}),
+        supabase.from("sales").select("id,sale_payments(amount,method,status)").eq("cash_register_id",current.id).eq("status","paid")
+      ]);
+      if (movementError || saleError) setError("O caixa foi localizado, mas houve erro ao carregar suas movimentações.");
+      setMovements((movementData ?? []) as CashMovement[]);
+      const payments = (saleData ?? []).flatMap((sale:any) => (sale.sale_payments ?? []).filter((p:any)=>p.status==="confirmed").map((p:any)=>({amount:Number(p.amount),method:p.method})));
+      setSalesPayments(payments);
+    } else { setMovements([]); setSalesPayments([]); }
+    setLoading(false);
+  }
+  useEffect(()=>{ void load(); },[]);
+
+  const paymentsByMethod = (method:string) => salesPayments.filter(p=>p.method===method).reduce((sum,p)=>sum+p.amount,0);
+  const cashIn = movements.filter(m=>m.movement_type==="cash_in" && m.payment_method==="cash").reduce((sum,m)=>sum+Number(m.amount),0);
+  const cashOut = movements.filter(m=>m.movement_type==="cash_out" && m.payment_method==="cash").reduce((sum,m)=>sum+Number(m.amount),0);
+  const expectedCash = Number(register?.opening_amount ?? 0) + paymentsByMethod("cash") + cashIn - cashOut;
+  const totalSales = salesPayments.reduce((sum,p)=>sum+p.amount,0);
+
+  async function openRegister(event:React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if(!supabase) return;
+    setBusy(true); setError(""); setMessage("");
+    const {data:userData} = await supabase.auth.getUser();
+    const {error:saveError} = await supabase.from("cash_registers").insert({
+      opening_amount:Number(openingAmount), opening_notes:openingNotes.trim()||null, opened_by:userData.user?.id??null
+    });
+    if(saveError) setError(saveError.code==="23505" ? "Já existe um caixa aberto. Feche-o antes de abrir outro." : "Não foi possível abrir o caixa. Confira os dados e tente novamente.");
+    else { setOpeningAmount("0"); setOpeningNotes(""); setMessage("Caixa aberto com sucesso."); await load(); }
+    setBusy(false);
+  }
+  async function addMovement(event:React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if(!supabase || !register) return;
+    const amount=Number(movementAmount.replace(",","."));
+    if(!Number.isFinite(amount)||amount<=0||!movementDescription.trim()){setError("Informe um valor válido e a descrição da movimentação.");return;}
+    setBusy(true);setError("");setMessage("");
+    const {data:userData}=await supabase.auth.getUser();
+    const {error:saveError}=await supabase.from("cash_movements").insert({
+      cash_register_id:register.id,movement_type:movementType,amount,description:movementDescription.trim(),payment_method:"cash",created_by:userData.user?.id??null
+    });
+    if(saveError)setError("Não foi possível registrar a movimentação.");
+    else {setMovementAmount("");setMovementDescription("");setMessage("Movimentação registrada.");await load();}
+    setBusy(false);
+  }
+  async function closeRegister(event:React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if(!supabase||!register)return;
+    const countedValue=Number(counted.replace(",","."));
+    if(!Number.isFinite(countedValue)||countedValue<0){setError("Informe o dinheiro contado no caixa.");return;}
+    const difference=countedValue-expectedCash;
+    if(Math.abs(difference)>0.009&&!closingNotes.trim()){setError("Explique a diferença entre o valor esperado e o valor contado.");return;}
+    if(!window.confirm("Confirma o fechamento deste caixa? Depois de fechado, ele não poderá receber novas movimentações."))return;
+    setBusy(true);setError("");setMessage("");
+    const {data:userData}=await supabase.auth.getUser();
+    const {error:saveError}=await supabase.from("cash_registers").update({
+      status:"closed",closing_counted:countedValue,closing_expected:expectedCash,closing_difference:difference,
+      closing_notes:closingNotes.trim()||null,closed_by:userData.user?.id??null,closed_at:new Date().toISOString()
+    }).eq("id",register.id).eq("status","open");
+    if(saveError)setError("Não foi possível fechar o caixa.");
+    else {setCounted("");setClosingNotes("");setMessage("Caixa fechado e registrado com sucesso.");await load();}
+    setBusy(false);
+  }
+
+  return <>
+    <div className="page-heading"><div><div className="eyebrow">PDV · CONTROLE FINANCEIRO</div><h1>Frente de <span>caixa</span></h1><p>Abertura, movimentações e fechamento do caixa.</p></div><button className="secondary-button" onClick={()=>void load()}><Activity size={16}/> Atualizar</button></div>
+    {message&&<div className="notice"><CheckCircle2 size={17}/>{message}</div>}
+    {error&&<div className="auth-error" role="alert">{error}</div>}
+    {loading?<div className="panel empty-state">Carregando informações do caixa...</div>:!register?
+      <section className="panel" style={{maxWidth:650,padding:24}}>
+        <div className="panel-heading"><div><h3><Wallet size={18}/> Caixa fechado</h3><p>Informe o fundo de troco para iniciar o expediente.</p></div><span className="status-pill waiting">Fechado</span></div>
+        <form onSubmit={openRegister} className="customer-form-grid">
+          <label className="auth-field">Valor inicial em dinheiro (R$)<input required type="number" min="0" step="0.01" value={openingAmount} onChange={e=>setOpeningAmount(e.target.value)}/></label>
+          <label className="auth-field wide">Observações da abertura<textarea rows={2} value={openingNotes} onChange={e=>setOpeningNotes(e.target.value)} placeholder="Ex.: fundo de troco recebido"/></label>
+          <div className="modal-actions wide"><button className="primary-button" disabled={busy}>{busy?"Abrindo...":"Abrir caixa"}</button></div>
+        </form>
+      </section>
+    :
+      <>
+        <section className="panel" style={{padding:22,marginBottom:18}}>
+          <div className="panel-heading"><div><h3>Caixa #{register.register_number} <span className="status-pill success">Aberto</span></h3><p>Aberto em {new Date(register.opened_at).toLocaleString("pt-BR")}</p></div><strong style={{fontSize:22}}>{money(expectedCash)}</strong></div>
+          <div className="metrics-grid">
+            <Metric icon={<Wallet/>} label="Fundo inicial" value={money(Number(register.opening_amount))} change="Abertura" detail="Dinheiro inicial"/>
+            <Metric icon={<CircleDollarSign/>} label="Vendas recebidas" value={money(totalSales)} change="Registradas" detail="Pagamentos vinculados a vendas"/>
+            <Metric icon={<ArrowUpRight/>} label="Entradas em dinheiro" value={money(cashIn)} change="Reforços" detail="Movimentações de entrada"/>
+            <Metric icon={<ArrowDownRight/>} label="Saídas em dinheiro" value={money(cashOut)} change="Sangrias" detail="Movimentações de saída"/>
+          </div>
+          <div className="report-grid" style={{marginTop:18}}>
+            {(["cash","pix","debit_card","credit_card","bank_transfer","other"] as const).map(method=><div className="report-card" key={method}><span>{{cash:"Dinheiro",pix:"PIX",debit_card:"Débito",credit_card:"Crédito",bank_transfer:"Transferência",other:"Outros"}[method]}</span><strong>{money(paymentsByMethod(method))}</strong><small>Vendas pagas</small></div>)}
+          </div>
+        </section>
+        <div className="dashboard-grid">
+          <section className="panel" style={{padding:22}}>
+            <div className="panel-heading"><div><h3>Registrar movimentação</h3><p>Reforço de caixa ou sangria.</p></div></div>
+            <form onSubmit={addMovement} className="customer-form-grid">
+              <label className="auth-field">Tipo<select value={movementType} onChange={e=>setMovementType(e.target.value as "cash_in"|"cash_out")}><option value="cash_in">Entrada / Reforço</option><option value="cash_out">Saída / Sangria</option></select></label>
+              <label className="auth-field">Valor (R$)<input required type="number" min="0.01" step="0.01" value={movementAmount} onChange={e=>setMovementAmount(e.target.value)}/></label>
+              <label className="auth-field wide">Justificativa / descrição<input required maxLength={300} value={movementDescription} onChange={e=>setMovementDescription(e.target.value)} placeholder="Descreva o motivo"/></label>
+              <div className="modal-actions wide"><button className="primary-button" disabled={busy}>Registrar movimentação</button></div>
+            </form>
+          </section>
+          <section className="panel" style={{padding:22}}>
+            <div className="panel-heading"><div><h3>Fechamento de caixa</h3><p>Confira o dinheiro físico antes de encerrar.</p></div></div>
+            <div className="report-card" style={{marginBottom:14}}><span>Dinheiro esperado em caixa</span><strong>{money(expectedCash)}</strong><small>Fundo + vendas em dinheiro + entradas − saídas</small></div>
+            <form onSubmit={closeRegister} className="customer-form-grid">
+              <label className="auth-field wide">Dinheiro contado (R$)<input required type="number" min="0" step="0.01" value={counted} onChange={e=>setCounted(e.target.value)}/></label>
+              <label className="auth-field wide">Observação / justificativa da diferença<textarea rows={2} value={closingNotes} onChange={e=>setClosingNotes(e.target.value)} placeholder="Obrigatória se houver sobra ou falta"/></label>
+              {counted!==""&&<div className="wide"><strong>Diferença: {money(Number(counted)-expectedCash)}</strong></div>}
+              <div className="modal-actions wide"><button className="primary-button" disabled={busy}>Fechar caixa</button></div>
+            </form>
+          </section>
+        </div>
+        <section className="panel" style={{padding:22,marginTop:18}}>
+          <div className="panel-heading"><div><h3>Movimentações do expediente</h3><p>Histórico de entradas e saídas do caixa aberto.</p></div></div>
+          {movements.length===0?<div className="empty-state">Nenhuma movimentação manual registrada.</div>:<div className="table-wrap"><table><thead><tr><th>DATA</th><th>TIPO</th><th>DESCRIÇÃO</th><th>VALOR</th></tr></thead><tbody>{movements.map(m=><tr key={m.id}><td>{new Date(m.created_at).toLocaleString("pt-BR")}</td><td>{m.movement_type==="cash_in"?"Entrada":"Saída"}</td><td>{m.description}</td><td className="table-value">{m.movement_type==="cash_in"?"+":"−"} {money(Number(m.amount))}</td></tr>)}</tbody></table></div>}
+        </section>
+      </>
+    }
+    <section className="panel" style={{padding:22,marginTop:18}}>
+      <div className="panel-heading"><div><h3>Últimos fechamentos</h3><p>Histórico dos caixas encerrados.</p></div></div>
+      {history.length===0?<div className="empty-state">Nenhum fechamento registrado ainda.</div>:<div className="table-wrap"><table><thead><tr><th>CAIXA</th><th>ABERTURA</th><th>FECHAMENTO</th><th>ESPERADO</th><th>CONTADO</th><th>DIFERENÇA</th></tr></thead><tbody>{history.map(h=><tr key={h.id}><td>#{h.register_number}</td><td>{new Date(h.opened_at).toLocaleString("pt-BR")}</td><td>{h.closed_at?new Date(h.closed_at).toLocaleString("pt-BR"):"—"}</td><td>{money(Number(h.closing_expected??0))}</td><td>{money(Number(h.closing_counted??0))}</td><td className="table-value">{money(Number(h.closing_difference??0))}</td></tr>)}</tbody></table></div>}
+    </section>
+  </>;
+}
 
 type Customer = {
   id: string;
