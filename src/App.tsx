@@ -178,7 +178,7 @@ function DashboardApp({ email }: { email: string }) {
           {page === "ordens" && <OrdersPage orders={filteredOrders} search={search} setSearch={setSearch} onNew={() => setShowNewOrder(true)} />}
           {page === "producao" && <ProductionPage orders={orders.filter((o) => o.category === "Serviços gráficos")} />}
           {page === "clientes" && <CustomersPage />}
-          {page === "relatorios" && <GenericPage title="Relatórios" subtitle="Acompanhe o desempenho e os resultados da sua empresa." icon={<TrendingUp/>} action="Exportar relatório" onAction={() => setNotice("A exportação será habilitada quando os dados reais estiverem conectados.")}><div className="report-grid"><div className="report-card"><span>Faturamento no mês</span><strong>R$ 8.450,00</strong><small>Valor ilustrativo</small></div><div className="report-card"><span>Ordens concluídas</span><strong>38</strong><small>Quantidade ilustrativa</small></div><div className="report-card"><span>Ticket médio</span><strong>R$ 125,40</strong><small>Valor ilustrativo</small></div></div></GenericPage>}
+          {page === "relatorios" && <ReportsPage />}
           {page === "configuracoes" && <GenericPage title="Configurações" subtitle="Personalize os dados e as preferências do Doutor Resolve Tech." icon={<Settings/>}><div className="settings-list"><div><strong>Dados da empresa</strong><span>Nome, slogan e informações comerciais</span><ChevronRight/></div><div><strong>Metas de faturamento</strong><span>Defina objetivos diários, semanais e mensais</span><ChevronRight/></div><div><strong>Usuários e acessos</strong><span>Dois usuários com permissões iguais</span><ChevronRight/></div><div><strong>Formas de pagamento</strong><span>Configure dinheiro, PIX, cartão e outros</span><ChevronRight/></div></div></GenericPage>}
         </div>
       </main>
@@ -852,6 +852,27 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy ? "Salvando..." : "Criar ordem de serviço"}</button></div>
     </form>
   </Modal>;
+}
+
+function ReportsPage(){
+ type SaleReport={id:string;sale_number:number;total:number;created_at:string;status:string;sale_payments:{method:string;amount:number;status:string}[]};
+ const [sales,setSales]=useState<SaleReport[]>([]);const [orderCount,setOrderCount]=useState(0);const [loading,setLoading]=useState(true);const [period,setPeriod]=useState("Este mês");const [error,setError]=useState("");
+ useEffect(()=>{let active=true;async function load(){if(!supabase){setLoading(false);return;}
+  const [{data:sd,error:se},{count, error:oe}]=await Promise.all([
+   supabase.from("sales").select("id,sale_number,total,created_at,status,sale_payments(method,amount,status)").order("created_at",{ascending:false}).limit(2000),
+   supabase.from("service_orders").select("id",{count:"exact",head:true})
+  ]);
+  if(!active)return;if(se||oe)setError("Alguns dados do relatório não puderam ser carregados.");setSales((sd??[]) as SaleReport[]);setOrderCount(count??0);setLoading(false);
+ }void load();return()=>{active=false;};},[]);
+ const now=new Date();const from=new Date(now);if(period==="Hoje")from.setHours(0,0,0,0);else if(period==="Esta semana"){from.setDate(from.getDate()-((from.getDay()+6)%7));from.setHours(0,0,0,0);}else from.setDate(1),from.setHours(0,0,0,0);
+ const selected=sales.filter(s=>new Date(s.created_at)>=from&&s.status==="paid");const total=selected.reduce((sum,s)=>sum+Number(s.total),0);const average=selected.length?total/selected.length:0;
+ const methods=[{key:"cash",label:"Dinheiro"},{key:"pix",label:"PIX"},{key:"debit_card",label:"Cartão de débito"},{key:"credit_card",label:"Cartão de crédito"},{key:"bank_transfer",label:"Transferência"},{key:"other",label:"Outros"}];
+ const methodTotals=methods.map(m=>({...m,value:selected.flatMap(s=>s.sale_payments??[]).filter(p=>p.method===m.key&&p.status==="confirmed").reduce((sum,p)=>sum+Number(p.amount),0)}));
+ return <><div className="page-heading"><div><div className="eyebrow">ANÁLISE DO NEGÓCIO</div><h1>Relatórios</h1><p>Indicadores calculados com os registros reais do sistema.</p></div><div className="heading-actions"><label className="select-wrap"><CalendarDays size={16}/><select value={period} onChange={e=>setPeriod(e.target.value)}><option>Este mês</option><option>Esta semana</option><option>Hoje</option></select></label><button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/> Imprimir</button></div></div>
+ {error&&<div className="auth-error">{error}</div>}
+ <div className="metrics-grid"><Metric icon={<Wallet/>} label="Faturamento" value={loading?"Carregando...":money(total)} change={period} detail="Vendas pagas no período"/><Metric icon={<ShoppingBag/>} label="Vendas pagas" value={String(selected.length)} change={period} detail="Transações concluídas"/><Metric icon={<CircleDollarSign/>} label="Ticket médio" value={money(average)} change="Média" detail="Faturamento dividido por vendas"/><Metric icon={<ClipboardList/>} label="Ordens cadastradas" value={String(orderCount)} change="Total histórico" detail="Ordens de serviço registradas"/></div>
+ <section className="panel" style={{padding:22,marginTop:18}}><div className="panel-heading"><div><h3>Faturamento por forma de pagamento</h3><p>Valores confirmados nas vendas do período.</p></div></div><div className="report-grid">{methodTotals.map(m=><div className="report-card" key={m.key}><span>{m.label}</span><strong>{money(m.value)}</strong><small>{total>0?Math.round(m.value/total*100):0}% do faturamento</small></div>)}</div></section>
+ <section className="panel" style={{padding:22,marginTop:18}}><div className="panel-heading"><div><h3>Vendas recentes</h3><p>Histórico das vendas registradas.</p></div></div>{loading?<div className="empty-state">Carregando vendas...</div>:<div className="table-wrap"><table><thead><tr><th>VENDA</th><th>DATA</th><th>STATUS</th><th>VALOR</th></tr></thead><tbody>{sales.filter(s=>new Date(s.created_at)>=from).slice(0,30).map(s=><tr key={s.id}><td className="order-id">#{s.sale_number}</td><td>{new Date(s.created_at).toLocaleString("pt-BR")}</td><td>{s.status==="paid"?"Paga":s.status==="refunded"?"Estornada":s.status==="cancelled"?"Cancelada":"Pendente"}</td><td className="table-value">{money(Number(s.total))}</td></tr>)}</tbody></table>{sales.filter(s=>new Date(s.created_at)>=from).length===0&&<div className="empty-state">Nenhuma venda neste período.</div>}</div>}</section></>;
 }
 
 function GenericPage({ title, subtitle, icon, action, onAction, children }: { title: string; subtitle: string; icon: React.ReactNode; action?: string; onAction?: () => void; children: React.ReactNode }) {
