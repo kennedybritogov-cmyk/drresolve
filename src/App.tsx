@@ -219,7 +219,9 @@ function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder
  const revenue=validSales.reduce((sum,s)=>sum+Number(s.total),0);
  const orderOpen=orders.filter(o=>!["Pronto","Concluído","Cancelado"].includes(o.status)).length;
  const graphicOrders=orders.filter(o=>o.category==="Serviços gráficos"&&!["Pronto","Concluído","Cancelado"].includes(o.status)).length;
- const goals={Diária:{target:goalTargets.Diária,current:revenue},Semanal:{target:goalTargets.Semanal,current:revenue},Mensal:{target:goalTargets.Mensal,current:revenue}};
+ const goalStart=new Date(now);if(goalTab==="Diária")goalStart.setHours(0,0,0,0);else if(goalTab==="Semanal"){goalStart.setDate(goalStart.getDate()-((goalStart.getDay()+6)%7));goalStart.setHours(0,0,0,0);}else{goalStart.setDate(1);goalStart.setHours(0,0,0,0);}
+ const goalRevenue=sales.filter(s=>s.status==="paid"&&new Date(s.created_at)>=goalStart&&new Date(s.created_at)<=end).reduce((sum,s)=>sum+Number(s.total),0);
+ const goals={Diária:{target:goalTargets.Diária,current:goalTab==="Diária"?goalRevenue:goalRevenue},Semanal:{target:goalTargets.Semanal,current:goalRevenue},Mensal:{target:goalTargets.Mensal,current:goalRevenue}};
  const goal=goals[goalTab as keyof typeof goals];const progress=goal.target>0?Math.min(100,Math.round(goal.current/goal.target*100)):0;
  const revenueLabel=money(revenue);
  const dateLabel=now.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
