@@ -101,6 +101,26 @@ function DashboardApp({ email }: { email: string }) {
   const [orders, setOrders] = useState(initialOrders);
   const [notice, setNotice] = useState("");
 
+  async function loadOrders() {
+    if (!supabase) return;
+    const {data,error} = await supabase.from("service_orders")
+      .select("id,order_number,category,status,title,estimated_total,final_total,created_at,customers(name)")
+      .order("created_at",{ascending:false}).limit(300);
+    if (error) { setNotice("Não foi possível atualizar as ordens de serviço: "+error.message); return; }
+    const categoryLabels:Record<string,string>={maintenance:"Manutenção",graphic:"Serviços gráficos",printing_3d:"Impressão 3D",firearm_process:"Processo CR/CAC"};
+    const statusLabels:Record<string,string>={open:"Aguardando",waiting:"Aguardando",in_progress:"Em andamento",awaiting_approval:"Aguardando aprovação",awaiting_pickup:"Pronto",completed:"Concluído",cancelled:"Cancelado"};
+    setOrders((data??[]).map((row:any)=>({
+      id:"OS-"+String(row.order_number).padStart(6,"0"),
+      client:row.customers?.name??"Cliente não informado",
+      service:row.title,
+      category:categoryLabels[row.category]??row.category,
+      status:statusLabels[row.status]??row.status,
+      date:new Date(row.created_at).toLocaleString("pt-BR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}),
+      value:Number(row.final_total||row.estimated_total||0)
+    })) as typeof initialOrders);
+  }
+  useEffect(()=>{void loadOrders();},[]);
+
   const filteredOrders = useMemo(() => orders.filter((order) =>
     [order.id, order.client, order.service, order.category, order.status].join(" ").toLowerCase().includes(search.toLowerCase())
   ), [orders, search]);
@@ -164,7 +184,7 @@ function DashboardApp({ email }: { email: string }) {
       </main>
 
       {showNewSale && <NewSaleModal onClose={() => setShowNewSale(false)} onSaved={() => { setShowNewSale(false); setNotice("Venda registrada no caixa aberto."); }} />}
-      {showNewOrder && <NewServiceOrderModal onClose={() => setShowNewOrder(false)} onSaved={(number) => { setShowNewOrder(false); setNotice(`OS #${number} criada com sucesso.`); }} />}
+      {showNewOrder && <NewServiceOrderModal onClose={() => setShowNewOrder(false)} onSaved={(number) => { setShowNewOrder(false); setNotice(`OS #${number} criada com sucesso.`); void loadOrders(); }} />}
     </div>
   );
 }
