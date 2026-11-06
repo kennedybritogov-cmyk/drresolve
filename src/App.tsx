@@ -757,7 +757,7 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
         const { error: customerUpdateError } = await supabase.from("customers").update({
           email: firearmEmail.trim() || customer.email,
           address: firearmAddress.trim() || customer.address,
-          cpf: draft.cpf.trim() || customer.cpf
+          cpf: customer.cpf
         }).eq("id", customer.id);
         if (customerUpdateError) throw customerUpdateError;
         const { error: profileError } = await supabase.from("customer_firearm_profiles").upsert({
@@ -830,12 +830,10 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
       </select></div>
       <div className="form-field"><label>Serviço solicitado *</label><input required value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Ex.: Manutenção de notebook, cartões de visita..."/></div>
       {category === "firearm_process" && <section className="firearm-form-section">
-        <h3>Dados do processo — CR/CAC</h3>
+        <h3>Dados complementares do processo — CR/CAC</h3>
         <p>Preencha com as informações fornecidas pelo cliente. Os dados ficam vinculados ao cadastro dele.</p>
         <div className="customer-form-grid">
-          <label className="auth-field wide">Nome completo *<input required value={creatingCustomer ? draft.name : selectedCustomer?.name ?? ""} onChange={(e)=>{ if(creatingCustomer) setDraft({...draft,name:e.target.value}); }}/></label>
           <label className="auth-field">Data de nascimento<input type="date" value={birthDate} onChange={(e)=>setBirthDate(e.target.value)}/></label>
-          <label className="auth-field">CPF<input value={creatingCustomer ? draft.cpf : selectedCustomer?.cpf ?? ""} onChange={(e)=>{if(creatingCustomer) setDraft({...draft,cpf:e.target.value});}}/></label>
           <label className="auth-field">RG<input value={rg} onChange={(e)=>setRg(e.target.value)}/></label>
           <label className="auth-field">Data de expedição RG<input type="date" value={rgIssuedOn} onChange={(e)=>setRgIssuedOn(e.target.value)}/></label>
           <label className="auth-field wide">Órgão de emissão do RG<input value={rgIssuer} onChange={(e)=>setRgIssuer(e.target.value)}/></label>
