@@ -676,11 +676,9 @@ function CustomersPage() {
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={()=>setShowForm(false)}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? "Salvando..." : "Salvar cliente"}</button></div>
       </form>
     </Modal>}
+    {showProfile && <CustomerProfileModal customers={customers} onClose={()=>setShowProfile(false)} onSaved={()=>{setShowProfile(false);void loadCustomers();}}/>}
   </>;
 }
-    {showProfile && <CustomerProfileModal customers={customers} onClose={()=>setShowProfile(false)} onSaved={()=>{setShowProfile(false);setError("");}}/>}
-
-
 
 function CustomerProfileModal({customers,onClose,onSaved}:{customers:Customer[];onClose:()=>void;onSaved:()=>void}){
  const [customerId,setCustomerId]=useState("");const [profile,setProfile]=useState<any>({birth_date:"",rg:"",rg_issued_on:"",rg_issuer:"",voter_registration:"",father_name:"",mother_name:"",postal_code:"",education:"",profession:"",marital_status:"",nationality:"Brasileira",consent_recorded:false});const [busy,setBusy]=useState(false);const [error,setError]=useState("");
