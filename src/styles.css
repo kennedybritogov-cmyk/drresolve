@@ -192,3 +192,30 @@
  .modal-os-full .modal-header{margin-top:0!important;padding-top:0!important}
  .modal-os-full .report-grid,.modal-os-full .os-service-summary,.modal-os-full .os-firearm-details{margin-top:0!important}
 }
+
+
+/* Evita que a grade CR/CAC seja empurrada para outra página ao imprimir */
+@media print{
+ .modal-os-full .os-firearm-details{
+  display:block!important;height:auto!important;min-height:0!important;max-height:none!important;
+  overflow:visible!important;break-inside:auto!important;page-break-inside:auto!important;
+ }
+ .modal-os-full .os-firearm-details h3{break-after:avoid!important;page-break-after:avoid!important}
+ .modal-os-full .os-firearm-details .os-data-grid{
+  display:grid!important;grid-template-columns:1fr 1fr!important;grid-auto-rows:auto!important;
+  height:auto!important;min-height:0!important;overflow:visible!important;
+  break-inside:auto!important;page-break-inside:auto!important;
+ }
+ .modal-os-full .os-firearm-details .os-data-item{
+  display:flex!important;position:static!important;height:auto!important;min-height:0!important;
+  overflow:visible!important;break-inside:avoid!important;page-break-inside:avoid!important;
+ }
+ .modal-os-full .os-firearm-details .os-doc-list,
+ .modal-os-full .os-firearm-details .os-doc-item,
+ .modal-os-full .os-firearm-details .os-consent-line{
+  height:auto!important;min-height:0!important;overflow:visible!important;
+ }
+ .modal-os-full .os-firearm-details .os-data-grid,
+ .modal-os-full .os-firearm-details .os-doc-list{margin-top:0!important}
+ .modal-os-full .panel div{break-inside:auto!important;page-break-inside:auto!important}
+}
