@@ -352,9 +352,7 @@ function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
  }
  const methodLabel=(m:string)=>({cash:"Dinheiro",pix:"PIX",debit_card:"Débito",credit_card:"Crédito",bank_transfer:"Transferência",other:"Outro"} as Record<string,string>)[m]??m;
  return <div className="modal-backdrop sale-screen-backdrop"><div className="modal sale-screen"><div className="modal-header"><div><h2>PDV · Nova venda</h2><p>Adicione produtos e serviços e conclua o recebimento.</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20}/></button></div><form onSubmit={save} className="sale-screen-form">
-  <p className="modal-copy">Monte o carrinho, escolha o cliente e distribua o pagamento. A venda será vinculada ao caixa aberto.</p>
-  {customers.length>0&&<label className="auth-field">Cliente (opcional)<select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Venda sem cliente identificado</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}{c.phone?" — "+c.phone:""}</option>)}</select></label>}
-  <div className="panel" style={{padding:14,margin:"14px 0"}}>
+  <div className="sale-screen-layout"><section className="sale-workspace"><div className="sale-customer-field"><label className="auth-field">Cliente (opcional)<select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Venda sem cliente identificado</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}{c.phone?" — "+c.phone:""}</option>)}</select></label></div><div className="panel sale-items-panel">
    <div className="panel-heading"><div><h3>Itens da venda</h3><p>Adicione quantos produtos ou serviços precisar.</p></div><button type="button" className="secondary-button" onClick={()=>setCart(old=>[...old,{catalog_item_id:null,description:"",quantity:"1",unit_price:"",unit_cost:0,discount:"0"}])}><Plus size={15}/> Adicionar item</button></div>
    {cart.map((line,index)=><div key={index} className="customer-form-grid" style={{borderTop:"1px solid var(--border,#e8eaf0)",paddingTop:12,marginTop:12}}>
     {items.length>0&&<label className="auth-field wide">Buscar no catálogo<select value={line.catalog_item_id??""} onChange={e=>selectCatalog(index,e.target.value)}><option value="">Item manual / serviço avulso</option>{items.map(item=><option key={item.id} value={item.id}>{item.name} — {money(Number(item.unit_price))}</option>)}</select></label>}
@@ -367,8 +365,8 @@ function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
    </div>)}
    <div className="report-card" style={{marginTop:14}}><span>Total da venda</span><strong>{money(total)}</strong><small>Subtotal {money(subtotal)} · Descontos {money(discountTotal)}</small></div>
   </div>
-  <div className="panel" style={{padding:14,marginBottom:14}}>
-   <div className="panel-heading"><div><h3>Formas de pagamento</h3><p>É possível dividir o valor entre vários meios.</p></div><button type="button" className="secondary-button" onClick={()=>setPayments(old=>[...old,{method:"pix",amount:""}])}><Plus size={15}/> Adicionar pagamento</button></div>
+  </div><aside className="sale-checkout"><div className="sale-total-card"><span>Total da venda</span><strong>{money(total)}</strong><small>{cart.length} item(ns) no carrinho</small></div><div className="panel sale-payment-panel">
+   <div className="panel-heading"><div><h3>Recebimento</h3><p>É possível dividir o valor entre vários meios.</p></div><button type="button" className="secondary-button" onClick={()=>setPayments(old=>[...old,{method:"pix",amount:""}])}><Plus size={15}/> Adicionar pagamento</button></div>
    {payments.map((p,index)=><div key={index} className="customer-form-grid" style={{borderTop:"1px solid var(--border,#e8eaf0)",paddingTop:10,marginTop:10}}>
     <label className="auth-field">Forma<select value={p.method} onChange={e=>updatePayment(index,{method:e.target.value})}><option value="cash">Dinheiro</option><option value="pix">PIX</option><option value="debit_card">Cartão de débito</option><option value="credit_card">Cartão de crédito</option><option value="bank_transfer">Transferência</option><option value="other">Outro</option></select></label>
     <label className="auth-field">Valor (R$)<input required type="number" min="0.01" step="0.01" value={p.amount} onChange={e=>updatePayment(index,{amount:e.target.value})}/></label>
@@ -376,9 +374,9 @@ function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
    </div>)}
    <div style={{display:"flex",justifyContent:"space-between",gap:12,marginTop:14}}><span>Total pago: {money(paid)}</span><strong style={{color:Math.abs(remaining)<0.009?"#16834a":remaining<0?"#c43d3d":"inherit"}}>{Math.abs(remaining)<0.009?"Pagamento conferido":remaining>0?"Falta pagar: "+money(remaining):"Excedente: "+money(Math.abs(remaining))}</strong></div>
   </div>
-  {error&&<div className="auth-error" role="alert">{error}</div>}
-  <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy?"Registrando...":"Finalizar venda"}</button></div>
- </form></Modal>;
+  <div className="sale-payment-summary"><div><span>Total a pagar</span><strong>{money(total)}</strong></div><div><span>Valor recebido</span><strong>{money(paid)}</strong></div><div><span>{remaining<0?"Troco":"Falta pagar"}</span><strong className={Math.abs(remaining)<0.009?"payment-ok":remaining<0?"payment-change":"payment-due"}>{money(Math.abs(remaining))}</strong></div></div>
+  </div>{error&&<div className="auth-error" role="alert">{error}</div>}<button className="primary-button sale-finish-button" disabled={busy}>{busy?"Registrando venda...":"Finalizar venda"}</button><button type="button" className="secondary-button sale-cancel-button" onClick={onClose}>Cancelar venda</button></aside></div>
+ </form></div></div>;
 }
 
 type CashRegister = {
