@@ -296,12 +296,23 @@ function CashRegisterPage() {
   async function openRegister(event:React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); if(!supabase) return;
     setBusy(true); setError(""); setMessage("");
-    const {data:userData} = await supabase.auth.getUser();
-    const {error:saveError} = await supabase.from("cash_registers").insert({
-      opening_amount:Number(openingAmount), opening_notes:openingNotes.trim()||null, opened_by:userData.user?.id??null
-    });
-    if(saveError) setError(saveError.code==="23505" ? "Já existe um caixa aberto. Feche-o antes de abrir outro." : "Não foi possível abrir o caixa. Confira os dados e tente novamente.");
-    else { setOpeningAmount("0"); setOpeningNotes(""); setMessage("Caixa aberto com sucesso."); await load(); }
+    const amount=Number(String(openingAmount).replace(",","."));
+    if(!Number.isFinite(amount)||amount<0){setError("Informe um valor inicial válido.");setBusy(false);return;}
+    try {
+      const {data:userData,error:userError} = await supabase.auth.getUser();
+      if(userError) throw userError;
+      if(!userData.user) throw new Error("Sua sessão expirou. Saia e entre novamente no sistema.");
+      const {error:saveError} = await supabase.from("cash_registers").insert({
+        opening_amount:amount, opening_notes:openingNotes.trim()||null, opened_by:userData.user.id
+      });
+      if(saveError) {
+        if(saveError.code==="23505") setError("Já existe um caixa aberto. Atualize a tela para consultar o caixa atual.");
+        else if(saveError.code==="42501") setError("O banco bloqueou a abertura por permissão. Verifique o acesso do usuário no Supabase.");
+        else setError("Erro ao abrir caixa: "+saveError.message+" (código "+(saveError.code||"sem código")+")");
+      } else { setOpeningAmount("0"); setOpeningNotes(""); setMessage("Caixa aberto com sucesso."); await load(); }
+    } catch(err) {
+      setError(err instanceof Error ? err.message : "Falha inesperada ao abrir o caixa.");
+    }
     setBusy(false);
   }
   async function addMovement(event:React.FormEvent<HTMLFormElement>) {
