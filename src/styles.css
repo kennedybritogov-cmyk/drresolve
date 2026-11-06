@@ -39,3 +39,24 @@
   .panel{break-inside:avoid}
   @page{size:auto;margin:14mm}
 }
+
+
+/* Ordem de serviço: leitura clara dos dados do cliente e CR/CAC */
+.os-service-summary,.os-firearm-details{padding:18px!important;margin:14px 0!important;border:1px solid #e7e8ec!important;border-radius:12px!important;background:#fff!important}
+.os-service-summary h3,.os-firearm-details h3{font:800 15px Manrope,sans-serif!important;color:#202127!important;margin:0 0 14px!important}
+.os-service-summary>strong{display:block;font:700 15px Manrope,sans-serif;line-height:1.5;color:#17181c;overflow-wrap:anywhere}
+.os-service-summary h4,.os-firearm-details h4{font:700 12px Manrope,sans-serif;color:#555966;margin:18px 0 10px}
+.os-service-summary p{font-size:13px;line-height:1.65;color:#454852;white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0 0}
+.os-data-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.os-data-item{min-width:0;padding:10px 11px;border:1px solid #eceef1;border-radius:8px;background:#fafbfc;display:flex;flex-direction:column;gap:5px}
+.os-data-item span{font:500 10px Manrope,sans-serif;color:#858894}
+.os-data-item strong{font:700 12px Manrope,sans-serif;line-height:1.45;color:#24262c;overflow-wrap:anywhere;word-break:break-word}
+.os-data-wide{grid-column:1/-1}
+.os-doc-list{display:grid;gap:7px}
+.os-doc-item,.os-consent-line{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 11px;border:1px solid #eceef1;border-radius:8px;font:500 11px Manrope,sans-serif}
+.os-doc-item span,.os-consent-line span{color:#555966;min-width:0}
+.os-doc-item strong,.os-consent-line strong{font-size:10px;white-space:nowrap}
+.os-doc-item .is-received{color:#18794e}.os-doc-item .is-pending{color:#a36b0b}
+.os-consent-line{margin-top:10px;background:#fafbfc}
+@media(max-width:600px){.os-data-grid{grid-template-columns:1fr}.os-data-wide{grid-column:auto}.os-firearm-details,.os-service-summary{padding:13px!important}}
+@media print{.os-data-item,.os-doc-item,.os-consent-line{break-inside:avoid}.os-firearm-details,.os-service-summary{break-inside:avoid-page}}
