@@ -375,7 +375,7 @@ function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
    <div style={{display:"flex",justifyContent:"space-between",gap:12,marginTop:14}}><span>Total pago: {money(paid)}</span><strong style={{color:Math.abs(remaining)<0.009?"#16834a":remaining<0?"#c43d3d":"inherit"}}>{Math.abs(remaining)<0.009?"Pagamento conferido":remaining>0?"Falta pagar: "+money(remaining):"Excedente: "+money(Math.abs(remaining))}</strong></div>
   </div>
   <div className="sale-payment-summary"><div><span>Total a pagar</span><strong>{money(total)}</strong></div><div><span>Valor recebido</span><strong>{money(paid)}</strong></div><div><span>{remaining<0?"Troco":"Falta pagar"}</span><strong className={Math.abs(remaining)<0.009?"payment-ok":remaining<0?"payment-change":"payment-due"}>{money(Math.abs(remaining))}</strong></div></div>
-  </div>{error&&<div className="auth-error" role="alert">{error}</div>}<button className="primary-button sale-finish-button" disabled={busy}>{busy?"Registrando venda...":"Finalizar venda"}</button><button type="button" className="secondary-button sale-cancel-button" onClick={onClose}>Cancelar venda</button></aside></div>
+  {error&&<div className="auth-error" role="alert">{error}</div>}<button className="primary-button sale-finish-button" disabled={busy}>{busy?"Registrando venda...":"Finalizar venda"}</button><button type="button" className="secondary-button sale-cancel-button" onClick={onClose}>Cancelar venda</button></aside></div>
  </form></div></div>;
 }
 
