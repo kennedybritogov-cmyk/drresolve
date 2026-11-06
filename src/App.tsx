@@ -362,6 +362,24 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
   const [reportedDefect, setReportedDefect] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [rg, setRg] = useState("");
+  const [rgIssuedOn, setRgIssuedOn] = useState("");
+  const [rgIssuer, setRgIssuer] = useState("");
+  const [voterRegistration, setVoterRegistration] = useState("");
+  const [fatherName, setFatherName] = useState("");
+  const [motherName, setMotherName] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [education, setEducation] = useState("");
+  const [profession, setProfession] = useState("");
+  const [maritalStatus, setMaritalStatus] = useState("");
+  const [nationality, setNationality] = useState("Brasileira");
+  const [firearmEmail, setFirearmEmail] = useState("");
+  const [firearmAddress, setFirearmAddress] = useState("");
+  const [consentRecorded, setConsentRecorded] = useState(false);
+  const [docChecks, setDocChecks] = useState<Record<string, boolean>>({
+    photo_3x4: false, official_id: false, cpf: false, proof_of_address: false, proof_of_occupation: false
+  });
   const [estimatedTotal, setEstimatedTotal] = useState("0");
   const [dueAt, setDueAt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -416,9 +434,45 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
         estimated_total: Number(estimatedTotal || 0),
         due_at: dueAt ? new Date(dueAt).toISOString() : null,
         status: "open",
+        process_status: "process_started",
         production_status: category === "graphic" ? "waiting" : null
       }).select("id,order_number").single();
       if (orderError) throw orderError;
+      if (category === "firearm_process") {
+        const { error: customerUpdateError } = await supabase.from("customers").update({
+          email: firearmEmail.trim() || customer.email,
+          address: firearmAddress.trim() || customer.address,
+          cpf: draft.cpf.trim() || customer.cpf
+        }).eq("id", customer.id);
+        if (customerUpdateError) throw customerUpdateError;
+        const { error: profileError } = await supabase.from("customer_firearm_profiles").upsert({
+          customer_id: customer.id,
+          birth_date: birthDate || null, rg: rg.trim() || null,
+          rg_issued_on: rgIssuedOn || null, rg_issuer: rgIssuer.trim() || null,
+          voter_registration: voterRegistration.trim() || null,
+          father_name: fatherName.trim() || null, mother_name: motherName.trim() || null,
+          postal_code: postalCode.trim() || null, education: education || null,
+          profession: profession.trim() || null, marital_status: maritalStatus || null,
+          nationality: nationality.trim() || null,
+          consent_recorded: consentRecorded,
+          consent_recorded_at: consentRecorded ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "customer_id" });
+        if (profileError) throw profileError;
+        const docs = [
+          ["photo_3x4", "Foto 3x4"], ["official_id", "Documento oficial com foto"],
+          ["cpf", "CPF"], ["proof_of_address", "Comprovante de residência"],
+          ["proof_of_occupation", "Comprovante de ocupação lícita"]
+        ] as const;
+        const { error: docsError } = await supabase.from("firearm_process_documents").insert(
+          docs.map(([document_type]) => ({
+            service_order_id: order.id, document_type,
+            received: Boolean(docChecks[document_type]),
+            received_at: docChecks[document_type] ? new Date().toISOString() : null
+          }))
+        );
+        if (docsError) throw docsError;
+      }
       const { data: userData } = await supabase.auth.getUser();
       await supabase.from("service_order_events").insert({
         service_order_id: order.id, event_type: "created",
@@ -460,6 +514,39 @@ function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSav
         <option value="maintenance">Manutenção</option><option value="graphic">Serviços gráficos</option><option value="printing_3d">Impressão 3D</option><option value="firearm_process">Processos de CR/CAC</option>
       </select></div>
       <div className="form-field"><label>Serviço solicitado *</label><input required value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Ex.: Manutenção de notebook, cartões de visita..."/></div>
+      {category === "firearm_process" && <section className="firearm-form-section">
+        <h3>Dados do processo — CR/CAC</h3>
+        <p>Preencha com as informações fornecidas pelo cliente. Os dados ficam vinculados ao cadastro dele.</p>
+        <div className="customer-form-grid">
+          <label className="auth-field wide">Nome completo *<input required value={creatingCustomer ? draft.name : selectedCustomer?.name ?? ""} onChange={(e)=>{ if(creatingCustomer) setDraft({...draft,name:e.target.value}); }}/></label>
+          <label className="auth-field">Data de nascimento<input type="date" value={birthDate} onChange={(e)=>setBirthDate(e.target.value)}/></label>
+          <label className="auth-field">CPF<input value={creatingCustomer ? draft.cpf : selectedCustomer?.cpf ?? ""} onChange={(e)=>{if(creatingCustomer) setDraft({...draft,cpf:e.target.value});}}/></label>
+          <label className="auth-field">RG<input value={rg} onChange={(e)=>setRg(e.target.value)}/></label>
+          <label className="auth-field">Data de expedição RG<input type="date" value={rgIssuedOn} onChange={(e)=>setRgIssuedOn(e.target.value)}/></label>
+          <label className="auth-field wide">Órgão de emissão do RG<input value={rgIssuer} onChange={(e)=>setRgIssuer(e.target.value)}/></label>
+          <label className="auth-field">Nº título de eleitor<input value={voterRegistration} onChange={(e)=>setVoterRegistration(e.target.value)}/></label>
+          <label className="auth-field">E-mail<input type="email" value={firearmEmail || (selectedCustomer?.email ?? draft.email)} onChange={(e)=>setFirearmEmail(e.target.value)}/></label>
+          <label className="auth-field">Nome do pai<input value={fatherName} onChange={(e)=>setFatherName(e.target.value)}/></label>
+          <label className="auth-field">Nome da mãe<input value={motherName} onChange={(e)=>setMotherName(e.target.value)}/></label>
+          <label className="auth-field wide">Endereço completo<input value={firearmAddress || (selectedCustomer?.address ?? draft.address)} onChange={(e)=>setFirearmAddress(e.target.value)}/></label>
+          <label className="auth-field">CEP<input value={postalCode} onChange={(e)=>setPostalCode(e.target.value)}/></label>
+          <label className="auth-field">Escolaridade<select value={education} onChange={(e)=>setEducation(e.target.value)}><option value="">Selecione</option><option>Fundamental incompleto</option><option>Fundamental completo</option><option>Médio incompleto</option><option>Médio completo</option><option>Superior incompleto</option><option>Superior completo</option><option>Pós-graduação</option></select></label>
+          <label className="auth-field">Profissão<input value={profession} onChange={(e)=>setProfession(e.target.value)}/></label>
+          <label className="auth-field">Estado civil<select value={maritalStatus} onChange={(e)=>setMaritalStatus(e.target.value)}><option value="">Selecione</option><option>Solteiro(a)</option><option>Casado(a)</option><option>Divorciado(a)</option><option>Viúvo(a)</option><option>União estável</option></select></label>
+          <label className="auth-field">Nacionalidade<input value={nationality} onChange={(e)=>setNationality(e.target.value)}/></label>
+        </div>
+        <div className="credential-notice"><strong>Gov.br:</strong> não informe nem registre a senha neste sistema. Marque abaixo somente se o cliente autorizou o acompanhamento do acesso.</div>
+        <label className="consent-check"><input type="checkbox" checked={consentRecorded} onChange={(e)=>setConsentRecorded(e.target.checked)}/> Cliente autorizou o atendimento/acompanhamento do acesso Gov.br.</label>
+        <h3 className="checklist-title">Checklist de documentos recebidos</h3>
+        <p>Marque os documentos entregues pelo cliente.</p>
+        <div className="firearm-checklist">
+          <label><input type="checkbox" checked={docChecks.photo_3x4} onChange={(e)=>setDocChecks({...docChecks,photo_3x4:e.target.checked})}/> <span><strong>Foto 3x4</strong><small>Pode ser tirada com celular, parede clara ao fundo.</small></span></label>
+          <label><input type="checkbox" checked={docChecks.official_id} onChange={(e)=>setDocChecks({...docChecks,official_id:e.target.checked})}/> <span><strong>Documento oficial com foto</strong><small>RG, CNH ou outro documento oficial.</small></span></label>
+          <label><input type="checkbox" checked={docChecks.cpf} onChange={(e)=>setDocChecks({...docChecks,cpf:e.target.checked})}/> <span><strong>CPF</strong><small>Caso não conste no documento de identidade.</small></span></label>
+          <label><input type="checkbox" checked={docChecks.proof_of_address} onChange={(e)=>setDocChecks({...docChecks,proof_of_address:e.target.checked})}/> <span><strong>Comprovante de residência atualizado</strong></span></label>
+          <label><input type="checkbox" checked={docChecks.proof_of_occupation} onChange={(e)=>setDocChecks({...docChecks,proof_of_occupation:e.target.checked})}/> <span><strong>Comprovante de ocupação lícita</strong><small>Contracheque, carteira de trabalho, IR, contrato social, pró-labore, MEI etc.</small></span></label>
+        </div>
+      </section>}
       {(category === "maintenance") && <div className="customer-form-grid">
         <label className="auth-field">Equipamento<input value={equipment} onChange={(e)=>setEquipment(e.target.value)} placeholder="Notebook, computador..."/></label>
         <label className="auth-field">Marca<input value={make} onChange={(e)=>setMake(e.target.value)}/></label>
