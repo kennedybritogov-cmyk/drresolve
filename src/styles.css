@@ -225,3 +225,5 @@
 .quick-action-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:10px 0}
 .quick-action-options button{min-height:54px;display:flex;align-items:center;justify-content:center;gap:9px}
 @media(max-width:600px){.quick-action-options{grid-template-columns:1fr}}
+
+.category-filter-tabs{display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px;border-top:1px solid #eceef2}.category-filter-tabs button{border:1px solid #e5e6ea;background:#fff;border-radius:7px;padding:8px 11px;color:#656873;font:600 10px Manrope,sans-serif;cursor:pointer}.category-filter-tabs button.selected{border-color:#e0bb4d;background:#fff8e5;color:#765a10}
