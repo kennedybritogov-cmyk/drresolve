@@ -970,4 +970,596 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return <div className={`modal-backdrop${isOrderDetail ? " modal-os-backdrop" : ""}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className={`modal${isOrderDetail ? " modal-os-full" : ""}`}><div className="modal-header"><h2>{title}</h2><div className="modal-header-actions">{isOrderDetail&&<button type="button" className="os-print-button" onClick={()=>window.print()}><Printer size={16}/> Imprimir OS</button>}<button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={19}/></button></div></div>{children}</div></div>;
 }
 
+export default App
+}
+
+type CashRegister = {
+  id: string; register_number: number; status: "open" | "closed";
+  opening_amount: number; closing_counted: number | null; closing_expected: number | null;
+  closing_difference: number | null; opening_notes: string | null; closing_notes: string | null;
+  opened_at: string; closed_at: string | null;
+};
+type CashMovement = { id: string; movement_type: "cash_in" | "cash_out"; amount: number; description: string; payment_method: string; created_at: string };
+
+function CashRegisterPage({onNewSale,onNewOrder}:{onNewSale:()=>void;onNewOrder:()=>void}) {
+  const [register, setRegister] = useState<CashRegister | null>(null);
+  const [history, setHistory] = useState<CashRegister[]>([]);
+  const [movements, setMovements] = useState<CashMovement[]>([]);
+  const [salesPayments, setSalesPayments] = useState<{amount:number;method:string}[]>([]);
+  const [openingAmount, setOpeningAmount] = useState("0");
+  const [openingNotes, setOpeningNotes] = useState("");
+  const [movementType, setMovementType] = useState<"cash_in"|"cash_out">("cash_in");
+  const [movementAmount, setMovementAmount] = useState("");
+  const [movementDescription, setMovementDescription] = useState("");
+  const [counted, setCounted] = useState("");
+  const [closingNotes, setClosingNotes] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [showSaleScreen, setShowSaleScreen] = useState(false);
+
+  async function load() {
+    if (!supabase) return;
+    setLoading(true); setError("");
+    const {data: openData, error: openError} = await supabase.from("cash_registers").select("*").eq("status","open").maybeSingle();
+    if (openError) { setError("Não foi possível consultar o caixa."); setLoading(false); return; }
+    const current = (openData as CashRegister | null);
+    setRegister(current);
+    const {data: oldData} = await supabase.from("cash_registers").select("*").eq("status","closed").order("closed_at",{ascending:false}).limit(10);
+    setHistory((oldData ?? []) as CashRegister[]);
+    if (current) {
+      const [{data: movementData,error: movementError},{data: saleData,error: saleError}] = await Promise.all([
+        supabase.from("cash_movements").select("id,movement_type,amount,description,payment_method,created_at").eq("cash_register_id",current.id).order("created_at",{ascending:false}),
+        supabase.from("sales").select("id,sale_payments(amount,method,status)").eq("cash_register_id",current.id).eq("status","paid")
+      ]);
+      if (movementError || saleError) setError("O caixa foi localizado, mas houve erro ao carregar suas movimentações.");
+      setMovements((movementData ?? []) as CashMovement[]);
+      const payments = (saleData ?? []).flatMap((sale:any) => (sale.sale_payments ?? []).filter((p:any)=>p.status==="confirmed").map((p:any)=>({amount:Number(p.amount),method:p.method})));
+      setSalesPayments(payments);
+    } else { setMovements([]); setSalesPayments([]); }
+    setLoading(false);
+  }
+  useEffect(()=>{ void load(); },[]);
+
+  const paymentsByMethod = (method:string) => salesPayments.filter(p=>p.method===method).reduce((sum,p)=>sum+p.amount,0);
+  const cashIn = movements.filter(m=>m.movement_type==="cash_in" && m.payment_method==="cash").reduce((sum,m)=>sum+Number(m.amount),0);
+  const cashOut = movements.filter(m=>m.movement_type==="cash_out" && m.payment_method==="cash").reduce((sum,m)=>sum+Number(m.amount),0);
+  const expectedCash = Number(register?.opening_amount ?? 0) + paymentsByMethod("cash") + cashIn - cashOut;
+  const totalSales = salesPayments.reduce((sum,p)=>sum+p.amount,0);
+
+  async function openRegister(event:React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if(!supabase) return;
+    setBusy(true); setError(""); setMessage("");
+    const amount=Number(String(openingAmount).replace(",","."));
+    if(!Number.isFinite(amount)||amount<0){setError("Informe um valor inicial válido.");setBusy(false);return;}
+    try {
+      const {data:userData,error:userError} = await supabase.auth.getUser();
+      if(userError) throw userError;
+      if(!userData.user) throw new Error("Sua sessão expirou. Saia e entre novamente no sistema.");
+      const {error:saveError} = await supabase.from("cash_registers").insert({
+        opening_amount:amount, opening_notes:openingNotes.trim()||null, opened_by:userData.user.id
+      });
+      if(saveError) {
+        if(saveError.code==="23505") setError("Já existe um caixa aberto. Atualize a tela para consultar o caixa atual.");
+        else if(saveError.code==="42501") setError("O banco bloqueou a abertura por permissão. Verifique o acesso do usuário no Supabase.");
+        else setError("Erro ao abrir caixa: "+saveError.message+" (código "+(saveError.code||"sem código")+")");
+      } else { setOpeningAmount("0"); setOpeningNotes(""); setMessage("Caixa aberto com sucesso."); await load(); }
+    } catch(err) {
+      setError(err instanceof Error ? err.message : "Falha inesperada ao abrir o caixa.");
+    }
+    setBusy(false);
+  }
+  async function addMovement(event:React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if(!supabase || !register) return;
+    const amount=Number(movementAmount.replace(",","."));
+    if(!Number.isFinite(amount)||amount<=0||!movementDescription.trim()){setError("Informe um valor válido e a descrição da movimentação.");return;}
+    setBusy(true);setError("");setMessage("");
+    const {data:userData}=await supabase.auth.getUser();
+    const {error:saveError}=await supabase.from("cash_movements").insert({
+      cash_register_id:register.id,movement_type:movementType,amount,description:movementDescription.trim(),payment_method:"cash",created_by:userData.user?.id??null
+    });
+    if(saveError)setError("Não foi possível registrar a movimentação.");
+    else {setMovementAmount("");setMovementDescription("");setMessage("Movimentação registrada.");await load();}
+    setBusy(false);
+  }
+  async function closeRegister(event:React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if(!supabase||!register)return;
+    const countedValue=Number(counted.replace(",","."));
+    if(!Number.isFinite(countedValue)||countedValue<0){setError("Informe o dinheiro contado no caixa.");return;}
+    const difference=countedValue-expectedCash;
+    if(Math.abs(difference)>0.009&&!closingNotes.trim()){setError("Explique a diferença entre o valor esperado e o valor contado.");return;}
+    if(!window.confirm("Confirma o fechamento deste caixa? Depois de fechado, ele não poderá receber novas movimentações."))return;
+    setBusy(true);setError("");setMessage("");
+    const {data:userData}=await supabase.auth.getUser();
+    const {error:saveError}=await supabase.from("cash_registers").update({
+      status:"closed",closing_counted:countedValue,closing_expected:expectedCash,closing_difference:difference,
+      closing_notes:closingNotes.trim()||null,closed_by:userData.user?.id??null,closed_at:new Date().toISOString()
+    }).eq("id",register.id).eq("status","open");
+    if(saveError)setError("Não foi possível fechar o caixa.");
+    else {setCounted("");setClosingNotes("");setMessage("Caixa fechado e registrado com sucesso.");await load();}
+    setBusy(false);
+  }
+
+  return <>
+    <div className="page-heading"><div><div className="eyebrow">PDV · CONTROLE FINANCEIRO</div><h1>Frente de <span>caixa</span></h1><p>Abertura, movimentações e fechamento do caixa.</p></div><div className="heading-actions"><button className="primary-button" onClick={onNewSale}><ShoppingBag size={16}/> Nova venda</button><button className="secondary-button" onClick={onNewOrder}><ClipboardList size={16}/> Nova ordem de serviço</button><button className="secondary-button" onClick={()=>void load()}><Activity size={16}/> Atualizar</button></div></div>
+    {message&&<div className="notice"><CheckCircle2 size={17}/>{message}</div>}
+    {error&&<div className="auth-error" role="alert">{error}</div>}
+    {loading?<div className="panel empty-state">Carregando informações do caixa...</div>:!register?
+      <section className="panel" style={{maxWidth:650,padding:24}}>
+        <div className="panel-heading"><div><h3><Wallet size={18}/> Caixa fechado</h3><p>Informe o fundo de troco para iniciar o expediente.</p></div><span className="status-pill waiting">Fechado</span></div>
+        <form onSubmit={openRegister} className="customer-form-grid">
+          <label className="auth-field">Valor inicial em dinheiro (R$)<input required type="number" min="0" step="0.01" value={openingAmount} onChange={e=>setOpeningAmount(e.target.value)}/></label>
+          <label className="auth-field wide">Observações da abertura<textarea rows={2} value={openingNotes} onChange={e=>setOpeningNotes(e.target.value)} placeholder="Ex.: fundo de troco recebido"/></label>
+          <div className="modal-actions wide"><button className="primary-button" disabled={busy}>{busy?"Abrindo...":"Abrir caixa"}</button></div>
+        </form>
+      </section>
+    :
+      <>
+        <section className="panel" style={{padding:22,marginBottom:18}}>
+          <div className="panel-heading"><div><h3>Caixa #{register.register_number} <span className="status-pill success">Aberto</span></h3><p>Aberto em {new Date(register.opened_at).toLocaleString("pt-BR")}</p></div><div style={{display:"flex",alignItems:"center",gap:16}}><strong style={{fontSize:22}}>{money(expectedCash)}</strong><button className="primary-button" onClick={onNewSale}><ShoppingBag size={16}/> PDV — Iniciar venda</button></div></div>
+          <div className="metrics-grid">
+            <Metric icon={<Wallet/>} label="Fundo inicial" value={money(Number(register.opening_amount))} change="Abertura" detail="Dinheiro inicial"/>
+            <Metric icon={<CircleDollarSign/>} label="Vendas recebidas" value={money(totalSales)} change="Registradas" detail="Pagamentos vinculados a vendas"/>
+            <Metric icon={<ArrowUpRight/>} label="Entradas em dinheiro" value={money(cashIn)} change="Reforços" detail="Movimentações de entrada"/>
+            <Metric icon={<ArrowDownRight/>} label="Saídas em dinheiro" value={money(cashOut)} change="Sangrias" detail="Movimentações de saída"/>
+          </div>
+          <div className="report-grid" style={{marginTop:18}}>
+            {(["cash","pix","debit_card","credit_card","bank_transfer","other"] as const).map(method=><div className="report-card" key={method}><span>{{cash:"Dinheiro",pix:"PIX",debit_card:"Débito",credit_card:"Crédito",bank_transfer:"Transferência",other:"Outros"}[method]}</span><strong>{money(paymentsByMethod(method))}</strong><small>Vendas pagas</small></div>)}
+          </div>
+        </section>
+        <div className="dashboard-grid">
+          <section className="panel" style={{padding:22}}>
+            <div className="panel-heading"><div><h3>Registrar movimentação</h3><p>Reforço de caixa ou sangria.</p></div></div>
+            <form onSubmit={addMovement} className="customer-form-grid">
+              <label className="auth-field">Tipo<select value={movementType} onChange={e=>setMovementType(e.target.value as "cash_in"|"cash_out")}><option value="cash_in">Entrada / Reforço</option><option value="cash_out">Saída / Sangria</option></select></label>
+              <label className="auth-field">Valor (R$)<input required type="number" min="0.01" step="0.01" value={movementAmount} onChange={e=>setMovementAmount(e.target.value)}/></label>
+              <label className="auth-field wide">Justificativa / descrição<input required maxLength={300} value={movementDescription} onChange={e=>setMovementDescription(e.target.value)} placeholder="Descreva o motivo"/></label>
+              <div className="modal-actions wide"><button className="primary-button" disabled={busy}>Registrar movimentação</button></div>
+            </form>
+          </section>
+          <section className="panel" style={{padding:22}}>
+            <div className="panel-heading"><div><h3>Fechamento de caixa</h3><p>Confira o dinheiro físico antes de encerrar.</p></div></div>
+            <div className="report-card" style={{marginBottom:14}}><span>Dinheiro esperado em caixa</span><strong>{money(expectedCash)}</strong><small>Fundo + vendas em dinheiro + entradas − saídas</small></div>
+            <form onSubmit={closeRegister} className="customer-form-grid">
+              <label className="auth-field wide">Dinheiro contado (R$)<input required type="number" min="0" step="0.01" value={counted} onChange={e=>setCounted(e.target.value)}/></label>
+              <label className="auth-field wide">Observação / justificativa da diferença<textarea rows={2} value={closingNotes} onChange={e=>setClosingNotes(e.target.value)} placeholder="Obrigatória se houver sobra ou falta"/></label>
+              {counted!==""&&<div className="wide"><strong>Diferença: {money(Number(counted)-expectedCash)}</strong></div>}
+              <div className="modal-actions wide"><button className="primary-button" disabled={busy}>Fechar caixa</button></div>
+            </form>
+          </section>
+        </div>
+        <section className="panel" style={{padding:22,marginTop:18}}>
+          <div className="panel-heading"><div><h3>Movimentações do expediente</h3><p>Histórico de entradas e saídas do caixa aberto.</p></div></div>
+          {movements.length===0?<div className="empty-state">Nenhuma movimentação manual registrada.</div>:<div className="table-wrap"><table><thead><tr><th>DATA</th><th>TIPO</th><th>DESCRIÇÃO</th><th>VALOR</th></tr></thead><tbody>{movements.map(m=><tr key={m.id}><td>{new Date(m.created_at).toLocaleString("pt-BR")}</td><td>{m.movement_type==="cash_in"?"Entrada":"Saída"}</td><td>{m.description}</td><td className="table-value">{m.movement_type==="cash_in"?"+":"−"} {money(Number(m.amount))}</td></tr>)}</tbody></table></div>}
+        </section>
+      </>
+    }
+    <section className="panel" style={{padding:22,marginTop:18}}>
+      <div className="panel-heading"><div><h3>Últimos fechamentos</h3><p>Histórico dos caixas encerrados.</p></div></div>
+      {history.length===0?<div className="empty-state">Nenhum fechamento registrado ainda.</div>:<div className="table-wrap"><table><thead><tr><th>CAIXA</th><th>ABERTURA</th><th>FECHAMENTO</th><th>ESPERADO</th><th>CONTADO</th><th>DIFERENÇA</th></tr></thead><tbody>{history.map(h=><tr key={h.id}><td>#{h.register_number}</td><td>{new Date(h.opened_at).toLocaleString("pt-BR")}</td><td>{h.closed_at?new Date(h.closed_at).toLocaleString("pt-BR"):"—"}</td><td>{money(Number(h.closing_expected??0))}</td><td>{money(Number(h.closing_counted??0))}</td><td className="table-value">{money(Number(h.closing_difference??0))}</td></tr>)}</tbody></table></div>}
+    
+    </section>
+  </>;
+}
+
+type Customer = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  cpf: string | null;
+  address: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+function CustomersPage() {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Customer | null>(null);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [address, setAddress] = useState("");
+  const [notes, setNotes] = useState("");
+
+  async function loadCustomers() {
+    if (!supabase) return;
+    setLoading(true);
+    setError("");
+    const { data, error: loadError } = await supabase
+      .from("customers")
+      .select("id,name,phone,email,cpf,address,notes,is_active,created_at")
+      .eq("is_active", true)
+      .order("name", { ascending: true })
+      .limit(500);
+    if (loadError) setError("Não foi possível carregar os clientes. Confira a conexão e as permissões do banco.");
+    else setCustomers((data ?? []) as Customer[]);
+    setLoading(false);
+  }
+
+  useEffect(() => { void loadCustomers(); }, []);
+
+  function openNew() {
+    setEditing(null);
+    setName(""); setPhone(""); setEmail(""); setCpf(""); setAddress(""); setNotes("");
+    setShowForm(true);
+  }
+
+  function openEdit(customer: Customer) {
+    setEditing(customer);
+    setName(customer.name); setPhone(customer.phone ?? ""); setEmail(customer.email ?? "");
+    setCpf(customer.cpf ?? ""); setAddress(customer.address ?? ""); setNotes(customer.notes ?? "");
+    setShowForm(true);
+  }
+
+  async function saveCustomer(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+    setSaving(true); setError("");
+    const payload = {
+      name: name.trim(), phone: phone.trim() || null, email: email.trim() || null,
+      cpf: cpf.trim() || null, address: address.trim() || null, notes: notes.trim() || null,
+      updated_at: new Date().toISOString()
+    };
+    const result = editing
+      ? await supabase.from("customers").update(payload).eq("id", editing.id)
+      : await supabase.from("customers").insert(payload);
+    if (result.error) {
+      setError("Não foi possível salvar. Verifique os dados e tente novamente.");
+      setSaving(false);
+      return;
+    }
+    setShowForm(false); setSaving(false);
+    await loadCustomers();
+  }
+
+  async function archiveCustomer(customer: Customer) {
+    if (!supabase || !window.confirm(`Arquivar o cadastro de ${customer.name}? O histórico será preservado.`)) return;
+    const { error: archiveError } = await supabase.from("customers")
+      .update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", customer.id);
+    if (archiveError) setError("Não foi possível arquivar este cliente.");
+    else await loadCustomers();
+  }
+
+  const filtered = customers.filter((customer) =>
+    [customer.name, customer.phone ?? "", customer.email ?? "", customer.cpf ?? ""].join(" ").toLowerCase().includes(search.toLowerCase())
+  );
+
+  const [showProfile,setShowProfile] = useState(false);
+  return <>
+    <div className="page-heading">
+      <div><div className="eyebrow">RELACIONAMENTO</div><h1>Cadastro de <span>clientes</span></h1><p>Cadastre e consulte os clientes compartilhados entre os usuários.</p></div>
+      <div className="heading-actions"><button className="secondary-button" onClick={()=>setShowProfile(true)}><FileText size={16}/> Cliente CR / Posse / Porte</button><button className="primary-button" onClick={openNew}><Plus size={16}/> Novo cliente</button></div>
+    </div>
+    <section className="panel customers-panel">
+      <div className="customers-toolbar">
+        <div><strong>{customers.length}</strong><span> clientes ativos</span></div>
+        <label className="search-box"><Search size={16}/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nome, telefone, e-mail ou CPF"/></label>
+      </div>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      {loading ? <div className="empty-state">Carregando clientes...</div> :
+        filtered.length === 0 ? <div className="customers-empty"><Users size={30}/><strong>{search ? "Nenhum cliente encontrado" : "Nenhum cliente cadastrado ainda"}</strong><p>{search ? "Tente buscar por outro dado." : "Cadastre o primeiro cliente para começar a usar os registros reais."}</p><button className="primary-button" onClick={openNew}><Plus size={16}/> Novo cliente</button></div> :
+        <div className="table-wrap"><table><thead><tr><th>NOME</th><th>TELEFONE</th><th>E-MAIL</th><th>CPF</th><th>AÇÕES</th></tr></thead><tbody>
+          {filtered.map((customer) => <tr key={customer.id}>
+            <td><strong>{customer.name}</strong></td><td>{customer.phone || "—"}</td><td>{customer.email || "—"}</td><td>{customer.cpf || "—"}</td>
+            <td><div className="customer-actions"><button onClick={() => openEdit(customer)}>Editar</button><button onClick={() => void archiveCustomer(customer)}>Arquivar</button></div></td>
+          </tr>)}
+        </tbody></table></div>
+      }
+    </section>
+    {showForm && <Modal title={editing ? "Editar cliente" : "Novo cliente"} onClose={() => setShowForm(false)}>
+      <form onSubmit={saveCustomer}>
+        <div className="customer-form-grid">
+          <label className="auth-field wide">Nome completo *<input required maxLength={160} value={name} onChange={(e)=>setName(e.target.value)} placeholder="Nome do cliente"/></label>
+          <label className="auth-field">Telefone<input maxLength={40} value={phone} onChange={(e)=>setPhone(e.target.value)} placeholder="(00) 00000-0000"/></label>
+          <label className="auth-field">E-mail<input type="email" maxLength={254} value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="cliente@email.com"/></label>
+          <label className="auth-field">CPF (opcional)<input maxLength={14} value={cpf} onChange={(e)=>setCpf(e.target.value)} placeholder="000.000.000-00"/></label>
+          <label className="auth-field wide">Endereço<input maxLength={300} value={address} onChange={(e)=>setAddress(e.target.value)} placeholder="Endereço do cliente"/></label>
+          <label className="auth-field wide">Observações<textarea rows={3} maxLength={2000} value={notes} onChange={(e)=>setNotes(e.target.value)} placeholder="Informações adicionais"/></label>
+        </div>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={()=>setShowForm(false)}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? "Salvando..." : "Salvar cliente"}</button></div>
+      </form>
+    </Modal>}
+    {showProfile && <CustomerProfileModal customers={customers} onClose={()=>setShowProfile(false)} onSaved={()=>{setShowProfile(false);void loadCustomers();}}/>}
+  </>;
+}
+
+function CustomerProfileModal({customers,onClose,onSaved}:{customers:Customer[];onClose:()=>void;onSaved:()=>void}){
+ const [customerId,setCustomerId]=useState("");const [profile,setProfile]=useState<any>({birth_date:"",rg:"",rg_issued_on:"",rg_issuer:"",voter_registration:"",father_name:"",mother_name:"",postal_code:"",education:"",profession:"",marital_status:"",nationality:"Brasileira",consent_recorded:false});const [busy,setBusy]=useState(false);const [error,setError]=useState("");
+ useEffect(()=>{let active=true;async function load(){if(!supabase||!customerId)return;const {data,error:err}=await supabase.from("customer_firearm_profiles").select("*").eq("customer_id",customerId).maybeSingle();if(active){if(err)setError("Não foi possível carregar o perfil complementar.");else if(data)setProfile((old:any)=>({...old,...data}));}}void load();return()=>{active=false};},[customerId]);
+ async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase||!customerId){setError("Selecione um cliente.");return;}setBusy(true);setError("");const {error:err}=await supabase.from("customer_firearm_profiles").upsert({...profile,customer_id:customerId,consent_recorded_at:profile.consent_recorded?(profile.consent_recorded_at||new Date().toISOString()):null,updated_at:new Date().toISOString()},{onConflict:"customer_id"});if(err){setError("Não foi possível salvar: "+err.message);setBusy(false);return;}setBusy(false);onSaved();}
+ const set=(key:string,value:any)=>setProfile((old:any)=>({...old,[key]:value}));
+ return <Modal title="Cadastro complementar — CR / Posse / Porte" onClose={onClose}><form onSubmit={save}><label className="auth-field wide">Cliente<select required value={customerId} onChange={e=>{setCustomerId(e.target.value);setProfile({nationality:"Brasileira",consent_recorded:false});}}><option value="">Selecione um cliente cadastrado</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name} — {c.cpf||c.phone||"sem documento"}</option>)}</select></label><div className="customer-form-grid">
+ <label className="auth-field">Data de nascimento<input type="date" value={profile.birth_date||""} onChange={e=>set("birth_date",e.target.value)}/></label><label className="auth-field">RG<input value={profile.rg||""} onChange={e=>set("rg",e.target.value)}/></label><label className="auth-field">Expedição do RG<input type="date" value={profile.rg_issued_on||""} onChange={e=>set("rg_issued_on",e.target.value)}/></label><label className="auth-field">Órgão emissor<input value={profile.rg_issuer||""} onChange={e=>set("rg_issuer",e.target.value)}/></label><label className="auth-field">Título de eleitor<input value={profile.voter_registration||""} onChange={e=>set("voter_registration",e.target.value)}/></label><label className="auth-field">Nome do pai<input value={profile.father_name||""} onChange={e=>set("father_name",e.target.value)}/></label><label className="auth-field">Nome da mãe<input value={profile.mother_name||""} onChange={e=>set("mother_name",e.target.value)}/></label><label className="auth-field">CEP<input value={profile.postal_code||""} onChange={e=>set("postal_code",e.target.value)}/></label><label className="auth-field">Escolaridade<input value={profile.education||""} onChange={e=>set("education",e.target.value)}/></label><label className="auth-field">Profissão<input value={profile.profession||""} onChange={e=>set("profession",e.target.value)}/></label><label className="auth-field">Estado civil<input value={profile.marital_status||""} onChange={e=>set("marital_status",e.target.value)}/></label><label className="auth-field">Nacionalidade<input value={profile.nationality||""} onChange={e=>set("nationality",e.target.value)}/></label></div><div className="credential-notice"><strong>Gov.br:</strong> registre somente a autorização de atendimento e acompanhamento. Nunca informe ou armazene senha ou código de acesso.</div><label className="consent-check"><input type="checkbox" checked={Boolean(profile.consent_recorded)} onChange={e=>set("consent_recorded",e.target.checked)}/> Cliente autorizou o atendimento e acompanhamento do acesso Gov.br.</label>{error&&<div className="auth-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy||!customerId}>{busy?"Salvando...":"Salvar dados complementares"}</button></div></form></Modal>;
+}
+
+type NewCustomerDraft = { name: string; phone: string; email: string; cpf: string; address: string };
+
+function NewServiceOrderModal({ onClose, onSaved }: { onClose: () => void; onSaved: (number: number) => void }) {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [draft, setDraft] = useState<NewCustomerDraft>({ name: "", phone: "", email: "", cpf: "", address: "" });
+  const [category, setCategory] = useState("maintenance");
+  const [processType,setProcessType] = useState("cr_cac");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [equipment, setEquipment] = useState("");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  const [reportedDefect, setReportedDefect] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [rg, setRg] = useState("");
+  const [rgIssuedOn, setRgIssuedOn] = useState("");
+  const [rgIssuer, setRgIssuer] = useState("");
+  const [voterRegistration, setVoterRegistration] = useState("");
+  const [fatherName, setFatherName] = useState("");
+  const [motherName, setMotherName] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [education, setEducation] = useState("");
+  const [profession, setProfession] = useState("");
+  const [maritalStatus, setMaritalStatus] = useState("");
+  const [nationality, setNationality] = useState("Brasileira");
+  const [firearmEmail, setFirearmEmail] = useState("");
+  const [firearmAddress, setFirearmAddress] = useState("");
+  const [consentRecorded, setConsentRecorded] = useState(false);
+  const [docChecks, setDocChecks] = useState<Record<string, boolean>>({
+    photo_3x4: false, official_id: false, cpf: false, proof_of_address: false, proof_of_occupation: false
+  });
+  const [estimatedTotal, setEstimatedTotal] = useState("0");
+  const [dueAt, setDueAt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      if (!supabase) return;
+      const { data, error: loadError } = await supabase.from("customers")
+        .select("id,name,phone,email,cpf,address,notes,is_active,created_at")
+        .eq("is_active", true).order("name").limit(500);
+      if (!alive) return;
+      if (loadError) setError("Não foi possível carregar os clientes cadastrados.");
+      else setCustomers((data ?? []) as Customer[]);
+    }
+    void load();
+    return () => { alive = false; };
+  }, []);
+
+  const matches = customers.filter((c) =>
+    [c.name, c.phone ?? "", c.email ?? "", c.cpf ?? ""].join(" ").toLowerCase().includes(customerSearch.toLowerCase())
+  ).slice(0, 8);
+
+  useEffect(()=>{let active=true;async function loadProfile(){if(!supabase||!selectedCustomer||category!=="firearm_process")return;const [{data:p},{data:c}]=await Promise.all([supabase.from("customer_firearm_profiles").select("*").eq("customer_id",selectedCustomer.id).maybeSingle(),supabase.from("customers").select("email,address,cpf").eq("id",selectedCustomer.id).single()]);if(!active)return;if(p){setBirthDate(p.birth_date||"");setRg(p.rg||"");setRgIssuedOn(p.rg_issued_on||"");setRgIssuer(p.rg_issuer||"");setVoterRegistration(p.voter_registration||"");setFatherName(p.father_name||"");setMotherName(p.mother_name||"");setPostalCode(p.postal_code||"");setEducation(p.education||"");setProfession(p.profession||"");setMaritalStatus(p.marital_status||"");setNationality(p.nationality||"Brasileira");setConsentRecorded(Boolean(p.consent_recorded));}if(c){setFirearmEmail(c.email||"");setFirearmAddress(c.address||"");}}void loadProfile();return()=>{active=false;};},[selectedCustomer,category]);
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+    setBusy(true); setError("");
+    try {
+      let customer = selectedCustomer;
+      if (!customer && creatingCustomer) {
+        if (!draft.name.trim()) throw new Error("Informe o nome do cliente.");
+        const { data, error: customerError } = await supabase.from("customers").insert({
+          name: draft.name.trim(), phone: draft.phone.trim() || null,
+          email: draft.email.trim() || null, cpf: draft.cpf.trim() || null,
+          address: draft.address.trim() || null
+        }).select("id,name,phone,email,cpf,address,notes,is_active,created_at").single();
+        if (customerError) throw customerError;
+        customer = data as Customer;
+      }
+      if (!customer) throw new Error("Selecione um cliente ou cadastre um novo.");
+
+      const { data: order, error: orderError } = await supabase.from("service_orders").insert({
+        customer_id: customer.id,
+        category,
+        process_type: category === "firearm_process" ? processType : null,
+        title: title.trim(),
+        description: description.trim() || null,
+        equipment: equipment.trim() || null,
+        make: make.trim() || null,
+        model: model.trim() || null,
+        reported_defect: reportedDefect.trim() || null,
+        estimated_total: Number(estimatedTotal || 0),
+        due_at: dueAt ? new Date(dueAt).toISOString() : null,
+        status: "open",
+        process_status: "process_started",
+        production_status: category === "graphic" ? "waiting" : null
+      }).select("id,order_number").single();
+      if (orderError) throw orderError;
+      if (category === "firearm_process") {
+        const { error: customerUpdateError } = await supabase.from("customers").update({
+          email: firearmEmail.trim() || customer.email,
+          address: firearmAddress.trim() || customer.address,
+          cpf: customer.cpf
+        }).eq("id", customer.id);
+        if (customerUpdateError) throw customerUpdateError;
+        const { error: profileError } = await supabase.from("customer_firearm_profiles").upsert({
+          customer_id: customer.id,
+          birth_date: birthDate || null, rg: rg.trim() || null,
+          rg_issued_on: rgIssuedOn || null, rg_issuer: rgIssuer.trim() || null,
+          voter_registration: voterRegistration.trim() || null,
+          father_name: fatherName.trim() || null, mother_name: motherName.trim() || null,
+          postal_code: postalCode.trim() || null, education: education || null,
+          profession: profession.trim() || null, marital_status: maritalStatus || null,
+          nationality: nationality.trim() || null,
+          consent_recorded: consentRecorded,
+          consent_recorded_at: consentRecorded ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "customer_id" });
+        if (profileError) throw profileError;
+        const docs = [
+          ["photo_3x4", "Foto 3x4"], ["official_id", "Documento oficial com foto"],
+          ["cpf", "CPF"], ["proof_of_address", "Comprovante de residência"],
+          ["proof_of_occupation", "Comprovante de ocupação lícita"]
+        ] as const;
+        const { error: docsError } = await supabase.from("firearm_process_documents").insert(
+          docs.map(([document_type]) => ({
+            service_order_id: order.id, document_type,
+            received: Boolean(docChecks[document_type]),
+            received_at: docChecks[document_type] ? new Date().toISOString() : null
+          }))
+        );
+        if (docsError) throw docsError;
+      }
+      const { data: userData } = await supabase.auth.getUser();
+      await supabase.from("service_order_events").insert({
+        service_order_id: order.id, event_type: "created",
+        description: "Ordem de serviço criada.", actor_id: userData.user?.id ?? null
+      });
+      onSaved(Number(order.order_number));
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : "Não foi possível salvar a ordem. Confira os dados e tente novamente.");
+      setBusy(false);
+    }
+  }
+
+  return <div className="modal-backdrop modal-os-backdrop"><div className="modal modal-os-full"><div className="modal-header"><h2>Nova ordem de serviço</h2><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={19}/></button></div>
+    <form onSubmit={save}>
+      <div className="form-field">
+        <label>Cliente *</label>
+        {selectedCustomer ? <div className="selected-customer"><div><strong>{selectedCustomer.name}</strong><small>{selectedCustomer.phone || selectedCustomer.email || "Cliente selecionado"}</small></div><button type="button" className="secondary-button" onClick={() => { setSelectedCustomer(null); setCustomerSearch(""); }}>Trocar</button></div> :
+          <>
+            <label className="search-box customer-picker-search"><Search size={16}/><input value={customerSearch} onChange={(e) => { setCustomerSearch(e.target.value); setCreatingCustomer(false); }} onKeyDown={e=>{if(e.key==="Enter"&&customerSearch.trim()&&matches.length===0){e.preventDefault();setDraft({name:customerSearch.trim(),phone:"",email:"",cpf:"",address:""});setCreatingCustomer(true);}}} placeholder="Buscar por nome, telefone, e-mail ou CPF"/></label>
+            {customerSearch.trim() && <div className="customer-picker-results">
+              {matches.map((c) => <button type="button" key={c.id} onClick={() => { setSelectedCustomer(c); setCustomerSearch(""); }}><strong>{c.name}</strong><small>{c.phone || c.email || c.cpf || "Sem contato informado"}</small></button>)}
+              {matches.length === 0 && <div className="customer-no-match"><p>Nenhum cliente encontrado.</p><button type="button" className="secondary-button" onClick={()=>{setDraft({name:customerSearch.trim(),phone:"",email:"",cpf:"",address:""});setCreatingCustomer(true);}}>Cadastrar este cliente</button><small>Você também pode pressionar Enter para iniciar o cadastro.</small></div>}
+            </div>}
+            
+          </>
+        }
+      </div>
+      {creatingCustomer && <section className="inline-customer-form">
+        <h3>Novo cadastro de cliente</h3><p>Após salvar, ele será vinculado automaticamente a esta OS.</p>
+        <div className="customer-form-grid">
+          <label className="auth-field wide">Nome completo *<input required value={draft.name} onChange={(e)=>setDraft({...draft,name:e.target.value})} maxLength={160}/></label>
+          <label className="auth-field">Telefone<input value={draft.phone} onChange={(e)=>setDraft({...draft,phone:e.target.value})} maxLength={40}/></label>
+          <label className="auth-field">E-mail<input type="email" value={draft.email} onChange={(e)=>setDraft({...draft,email:e.target.value})} maxLength={254}/></label>
+          <label className="auth-field">CPF<input value={draft.cpf} onChange={(e)=>setDraft({...draft,cpf:e.target.value})} maxLength={14}/></label>
+          <label className="auth-field wide">Endereço<input value={draft.address} onChange={(e)=>setDraft({...draft,address:e.target.value})} maxLength={300}/></label>
+        </div>
+      </section>}
+      <div className="form-field"><label>Categoria *</label><select value={category} onChange={(e)=>setCategory(e.target.value)}>
+        <option value="maintenance">Manutenção</option><option value="graphic">Serviços gráficos</option><option value="printing_3d">Impressão 3D</option><option value="firearm_process">Processos CR / Posse / Porte</option>
+      </select></div>
+      <div className="form-field"><label>Serviço solicitado</label><input value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Ex.: Manutenção de notebook, cartões de visita..."/></div>
+      {category === "firearm_process" && <div className="form-field"><label>Tipo de processo</label><select value={processType} onChange={e=>setProcessType(e.target.value)}><option value="cr_cac">CR / CAC</option><option value="possession">Posse</option><option value="carry">Porte</option></select></div>}
+      {category === "firearm_process" && <section className="firearm-form-section">
+        <h3>Dados complementares do processo — CR/CAC</h3>
+        <p>Preencha com as informações fornecidas pelo cliente. Os dados ficam vinculados ao cadastro dele.</p>
+        <div className="customer-form-grid">
+          <label className="auth-field">Data de nascimento<input type="date" value={birthDate} onChange={(e)=>setBirthDate(e.target.value)}/></label>
+          <label className="auth-field">RG<input value={rg} onChange={(e)=>setRg(e.target.value)}/></label>
+          <label className="auth-field">Data de expedição RG<input type="date" value={rgIssuedOn} onChange={(e)=>setRgIssuedOn(e.target.value)}/></label>
+          <label className="auth-field wide">Órgão de emissão do RG<input value={rgIssuer} onChange={(e)=>setRgIssuer(e.target.value)}/></label>
+          <label className="auth-field">Nº título de eleitor<input value={voterRegistration} onChange={(e)=>setVoterRegistration(e.target.value)}/></label>
+          <label className="auth-field">E-mail<input type="email" value={firearmEmail || (selectedCustomer?.email ?? draft.email)} onChange={(e)=>setFirearmEmail(e.target.value)}/></label>
+          <label className="auth-field">Nome do pai<input value={fatherName} onChange={(e)=>setFatherName(e.target.value)}/></label>
+          <label className="auth-field">Nome da mãe<input value={motherName} onChange={(e)=>setMotherName(e.target.value)}/></label>
+          <label className="auth-field wide">Endereço completo<input value={firearmAddress || (selectedCustomer?.address ?? draft.address)} onChange={(e)=>setFirearmAddress(e.target.value)}/></label>
+          <label className="auth-field">CEP<input value={postalCode} onChange={(e)=>setPostalCode(e.target.value)}/></label>
+          <label className="auth-field">Escolaridade<select value={education} onChange={(e)=>setEducation(e.target.value)}><option value="">Selecione</option><option>Fundamental incompleto</option><option>Fundamental completo</option><option>Médio incompleto</option><option>Médio completo</option><option>Superior incompleto</option><option>Superior completo</option><option>Pós-graduação</option></select></label>
+          <label className="auth-field">Profissão<input value={profession} onChange={(e)=>setProfession(e.target.value)}/></label>
+          <label className="auth-field">Estado civil<select value={maritalStatus} onChange={(e)=>setMaritalStatus(e.target.value)}><option value="">Selecione</option><option>Solteiro(a)</option><option>Casado(a)</option><option>Divorciado(a)</option><option>Viúvo(a)</option><option>União estável</option></select></label>
+          <label className="auth-field">Nacionalidade<input value={nationality} onChange={(e)=>setNationality(e.target.value)}/></label>
+        </div>
+        <div className="credential-notice"><strong>Gov.br:</strong> não informe nem registre a senha neste sistema. Marque abaixo somente se o cliente autorizou o acompanhamento do acesso.</div>
+        <label className="consent-check"><input type="checkbox" checked={consentRecorded} onChange={(e)=>setConsentRecorded(e.target.checked)}/> Cliente autorizou o atendimento/acompanhamento do acesso Gov.br.</label>
+        <h3 className="checklist-title">Checklist de documentos recebidos</h3>
+        <p>Marque os documentos entregues pelo cliente.</p>
+        <div className="firearm-checklist">
+          <label><input type="checkbox" checked={docChecks.photo_3x4} onChange={(e)=>setDocChecks({...docChecks,photo_3x4:e.target.checked})}/> <span><strong>Foto 3x4</strong><small>Pode ser tirada com celular, parede clara ao fundo.</small></span></label>
+          <label><input type="checkbox" checked={docChecks.official_id} onChange={(e)=>setDocChecks({...docChecks,official_id:e.target.checked})}/> <span><strong>Documento oficial com foto</strong><small>RG, CNH ou outro documento oficial.</small></span></label>
+          <label><input type="checkbox" checked={docChecks.cpf} onChange={(e)=>setDocChecks({...docChecks,cpf:e.target.checked})}/> <span><strong>CPF</strong><small>Caso não conste no documento de identidade.</small></span></label>
+          <label><input type="checkbox" checked={docChecks.proof_of_address} onChange={(e)=>setDocChecks({...docChecks,proof_of_address:e.target.checked})}/> <span><strong>Comprovante de residência atualizado</strong></span></label>
+          <label><input type="checkbox" checked={docChecks.proof_of_occupation} onChange={(e)=>setDocChecks({...docChecks,proof_of_occupation:e.target.checked})}/> <span><strong>Comprovante de ocupação lícita</strong><small>Contracheque, carteira de trabalho, IR, contrato social, pró-labore, MEI etc.</small></span></label>
+        </div>
+      </section>}
+      {(category === "maintenance") && <div className="customer-form-grid">
+        <label className="auth-field">Equipamento<input value={equipment} onChange={(e)=>setEquipment(e.target.value)} placeholder="Notebook, computador..."/></label>
+        <label className="auth-field">Marca<input value={make} onChange={(e)=>setMake(e.target.value)}/></label>
+        <label className="auth-field">Modelo<input value={model} onChange={(e)=>setModel(e.target.value)}/></label>
+        <label className="auth-field wide">Defeito relatado<textarea rows={2} value={reportedDefect} onChange={(e)=>setReportedDefect(e.target.value)}/></label>
+      </div>}
+      <div className="form-field"><label>Descrição / observações</label><textarea rows={3} value={description} onChange={(e)=>setDescription(e.target.value)} placeholder="Detalhes do atendimento, especificações ou orientações"/></div>
+      <div className="customer-form-grid">
+        <label className="auth-field">Valor estimado (R$)<input type="number" min="0" step="0.01" value={estimatedTotal} onChange={(e)=>setEstimatedTotal(e.target.value)}/></label>
+        <label className="auth-field">Prazo previsto<input type="datetime-local" value={dueAt} onChange={(e)=>setDueAt(e.target.value)}/></label>
+      </div>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy ? "Salvando..." : "Criar ordem de serviço"}</button></div>
+    </form>
+  </Modal>;
+}
+
+function SettingsPage(){
+ const [daily,setDaily]=useState("650");const [weekly,setWeekly]=useState("3500");const [monthly,setMonthly]=useState("14000");const [loading,setLoading]=useState(true);const [busy,setBusy]=useState(false);const [message,setMessage]=useState("");const [error,setError]=useState("");
+ const today=new Date();const dateKey=(d:Date)=>d.toISOString().slice(0,10);const todayKey=dateKey(today);const weekStart=new Date(today);weekStart.setDate(weekStart.getDate()-((weekStart.getDay()+6)%7));const weekEnd=new Date(weekStart);weekEnd.setDate(weekEnd.getDate()+6);const monthStart=new Date(today.getFullYear(),today.getMonth(),1);const monthEnd=new Date(today.getFullYear(),today.getMonth()+1,0);
+ useEffect(()=>{let active=true;async function load(){if(!supabase){setLoading(false);return;}const {data,error:err}=await supabase.from("revenue_goals").select("period_type,target_amount,starts_on").order("starts_on",{ascending:false}).limit(100);if(!active)return;if(err)setError("Não foi possível carregar metas: "+err.message);else{const rows=data??[];const find=(type:string,start:string,fallback:string)=>rows.find((r:any)=>r.period_type===type&&r.starts_on===start)?.target_amount?.toString()??fallback;setDaily(find("daily",todayKey,"650"));setWeekly(find("weekly",dateKey(weekStart),"3500"));setMonthly(find("monthly",dateKey(monthStart),"14000"));}setLoading(false);}void load();return()=>{active=false;};},[]);
+ async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;const values=[{period_type:"daily",starts_on:todayKey,ends_on:todayKey,target_amount:Number(daily)},{period_type:"weekly",starts_on:dateKey(weekStart),ends_on:dateKey(weekEnd),target_amount:Number(weekly)},{period_type:"monthly",starts_on:dateKey(monthStart),ends_on:dateKey(monthEnd),target_amount:Number(monthly)}];if(values.some(v=>!Number.isFinite(v.target_amount)||v.target_amount<0)){setError("Informe valores válidos para as três metas.");return;}setBusy(true);setError("");setMessage("");const {data:user}=await supabase.auth.getUser();const {error:err}=await supabase.from("revenue_goals").upsert(values.map(v=>({...v,created_by:user.user?.id??null,updated_at:new Date().toISOString()})),{onConflict:"period_type,starts_on"});if(err)setError("Não foi possível salvar as metas: "+err.message);else setMessage("Metas salvas. O painel será atualizado com os novos objetivos.");setBusy(false);}
+ return <><div className="page-heading"><div><div className="eyebrow">PREFERÊNCIAS DO SISTEMA</div><h1>Configurações</h1><p>Defina as metas de faturamento que aparecem no painel.</p></div></div><section className="panel" style={{padding:22,maxWidth:850}}><div className="panel-heading"><div><h3>Metas de faturamento</h3><p>As metas são compartilhadas pelos usuários da empresa.</p></div><Target size={20}/></div>{loading?<div className="empty-state">Carregando metas...</div>:<form onSubmit={save} className="customer-form-grid"><label className="auth-field">Meta diária (R$)<input required type="number" min="0" step="0.01" value={daily} onChange={e=>setDaily(e.target.value)}/><small>{today.toLocaleDateString("pt-BR")}</small></label><label className="auth-field">Meta semanal (R$)<input required type="number" min="0" step="0.01" value={weekly} onChange={e=>setWeekly(e.target.value)}/><small>{weekStart.toLocaleDateString("pt-BR")} a {weekEnd.toLocaleDateString("pt-BR")}</small></label><label className="auth-field">Meta mensal (R$)<input required type="number" min="0" step="0.01" value={monthly} onChange={e=>setMonthly(e.target.value)}/><small>{monthStart.toLocaleDateString("pt-BR")} a {monthEnd.toLocaleDateString("pt-BR")}</small></label><div className="wide modal-actions"><button className="primary-button" disabled={busy}>{busy?"Salvando...":"Salvar metas"}</button></div></form>}{message&&<div className="notice">{message}</div>}{error&&<div className="auth-error">{error}</div>}</section><section className="panel" style={{padding:22,maxWidth:850,marginTop:18}}><h3>Usuários e segurança</h3><p>Os usuários autenticados compartilham os cadastros e os registros operacionais com permissões equivalentes. Não armazene senhas de terceiros ou credenciais Gov.br neste sistema.</p></section></>;
+}
+
+function CatalogPage(){
+ type Item={id:string;name:string;description:string|null;category:string;unit_price:number;unit_cost:number;is_active:boolean};
+ const [items,setItems]=useState<Item[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState("");const [search,setSearch]=useState("");const [showForm,setShowForm]=useState(false);const [editing,setEditing]=useState<Item|null>(null);
+ const [name,setName]=useState("");const [description,setDescription]=useState("");const [category,setCategory]=useState("product");const [price,setPrice]=useState("0");const [cost,setCost]=useState("0");const [busy,setBusy]=useState(false);
+ async function load(){if(!supabase)return;setLoading(true);const {data,error:err}=await supabase.from("catalog_items").select("id,name,description,category,unit_price,unit_cost,is_active").order("name");if(err)setError("Não foi possível carregar o catálogo: "+err.message);else setItems((data??[]) as Item[]);setLoading(false);}
+ useEffect(()=>{void load();},[]);
+ function open(item?:Item){setEditing(item??null);setName(item?.name??"");setDescription(item?.description??"");setCategory(item?.category??"product");setPrice(String(item?.unit_price??0));setCost(String(item?.unit_cost??0));setShowForm(true);}
+ async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;const value=Number(price);if(!name.trim()||!Number.isFinite(value)||value<0){setError("Informe nome e preço válido.");return;}setBusy(true);setError("");const costValue=Number(cost);if(!Number.isFinite(costValue)||costValue<0){setError("Informe um custo válido.");return;}const payload={name:name.trim(),description:description.trim()||null,category,unit_price:value,unit_cost:costValue,is_active:true,updated_at:new Date().toISOString()};const result=editing?await supabase.from("catalog_items").update(payload).eq("id",editing.id):await supabase.from("catalog_items").insert(payload);if(result.error)setError("Falha ao salvar: "+result.error.message);else{setShowForm(false);await load();}setBusy(false);}
+ async function toggle(item:Item){if(!supabase)return;const {error:err}=await supabase.from("catalog_items").update({is_active:!item.is_active,updated_at:new Date().toISOString()}).eq("id",item.id);if(err)setError("Não foi possível alterar o item: "+err.message);else await load();}
+ const filtered=items.filter(i=>[i.name,i.description??"",i.category].join(" ").toLowerCase().includes(search.toLowerCase()));
+ const categoryLabel=(c:string)=>({product:"Produto",graphic:"Serviço gráfico",maintenance:"Manutenção",printing_3d:"Impressão 3D",firearm_process:"Processo de CR",other:"Outro"} as Record<string,string>)[c]??c;
+ return <><div className="page-heading"><div><div className="eyebrow">CADASTRO COMERCIAL</div><h1>Produtos e <span>serviços</span></h1><p>Gerencie os itens disponíveis para selecionar no PDV.</p></div><button className="primary-button" onClick={()=>open()}><Plus size={16}/> Novo item</button></div>
+ <section className="panel customers-panel"><div className="customers-toolbar"><div><strong>{items.filter(i=>i.is_active).length}</strong><span> itens ativos no catálogo</span></div><label className="search-box"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar produto ou serviço"/></label></div>
+ {error&&<div className="auth-error">{error}</div>}{loading?<div className="empty-state">Carregando catálogo...</div>:<div className="table-wrap"><table><thead><tr><th>NOME</th><th>CATEGORIA</th><th>CUSTO</th><th>PREÇO</th><th>STATUS</th><th>AÇÕES</th></tr></thead><tbody>{filtered.map(item=><tr key={item.id}><td><strong>{item.name}</strong>{item.description&&<small>{item.description}</small>}</td><td>{categoryLabel(item.category)}</td><td>{money(Number(item.unit_cost))}</td><td className="table-value">{money(Number(item.unit_price))}</td><td>{item.is_active?"Ativo":"Inativo"}</td><td><div className="customer-actions"><button onClick={()=>open(item)}>Editar</button><button onClick={()=>void toggle(item)}>{item.is_active?"Desativar":"Ativar"}</button></div></td></tr>)}</tbody></table>{filtered.length===0&&<div className="empty-state">Nenhum item cadastrado. Adicione produtos e serviços para usá-los no PDV.</div>}</div>}</section>
+ {showForm&&<Modal title={editing?"Editar item":"Novo produto ou serviço"} onClose={()=>setShowForm(false)}><form onSubmit={save}><label className="auth-field">Nome<input required maxLength={150} value={name} onChange={e=>setName(e.target.value)} placeholder="Ex.: Cartão de visita, manutenção"/></label><label className="auth-field">Descrição<textarea rows={2} value={description} onChange={e=>setDescription(e.target.value)}/></label><div className="customer-form-grid"><label className="auth-field">Categoria<select value={category} onChange={e=>setCategory(e.target.value)}><option value="product">Produto</option><option value="graphic">Serviço gráfico</option><option value="maintenance">Manutenção</option><option value="printing_3d">Impressão 3D</option><option value="firearm_process">Processo de CR</option><option value="other">Outro</option></select></label><label className="auth-field">Custo unitário (R$)<input required type="number" min="0" step="0.01" value={cost} onChange={e=>setCost(e.target.value)}/></label><label className="auth-field">Preço de venda (R$)<input required type="number" min="0" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={()=>setShowForm(false)}>Cancelar</button><button className="primary-button" disabled={busy}>{busy?"Salvando...":"Salvar item"}</button></div></form></Modal>}
+ </>;
+}
+
+function ReportsPage(){
+ type SaleReport={id:string;sale_number:number;total:number;created_at:string;status:string;sale_payments:{method:string;amount:number;status:string}[];sale_items:{quantity:number;unit_cost:number}[]};
+ const [sales,setSales]=useState<SaleReport[]>([]);const [orderCount,setOrderCount]=useState(0);const [loading,setLoading]=useState(true);const [period,setPeriod]=useState("Este mês");const [error,setError]=useState("");
+ useEffect(()=>{let active=true;async function load(){if(!supabase){setLoading(false);return;}
+  const [{data:sd,error:se},{count, error:oe}]=await Promise.all([
+   supabase.from("sales").select("id,sale_number,total,created_at,status,sale_payments(method,amount,status),sale_items(quantity,unit_cost)").order("created_at",{ascending:false}).limit(2000),
+   supabase.from("service_orders").select("id",{count:"exact",head:true})
+  ]);
+  if(!active)return;if(se||oe)setError("Alguns dados do relatório não puderam ser carregados.");setSales((sd??[]) as SaleReport[]);setOrderCount(count??0);setLoading(false);
+ }void load();return()=>{active=false;};},[]);
+ const now=new Date();const from=new Date(now);if(period==="Hoje")from.setHours(0,0,0,0);else if(period==="Esta semana"){from.setDate(from.getDate()-((from.getDay()+6)%7));from.setHours(0,0,0,0);}else from.setDate(1),from.setHours(0,0,0,0);
+ const selected=sales.filter(s=>new Date(s.created_at)>=from&&s.status==="paid");const total=selected.reduce((sum,s)=>sum+Number(s.total),0);const average=selected.length?total/selected.length:0;const costTotal=selected.reduce((sum,s)=>sum+(s.sale_items??[]).reduce((line,q)=>line+Number(q.quantity)*Number(q.unit_cost),0),0);const grossProfit=total-costTotal;const margin=total>0?grossProfit/total*100:0;
+ const methods=[{key:"cash",label:"Dinheiro"},{key:"pix",label:"PIX"},{key:"debit_card",label:"Cartão de débito"},{key:"credit_card",label:"Cartão de crédito"},{key:"bank_transfer",label:"Transferência"},{key:"other",label:"Outros"}];
+ const methodTotals=methods.map(m=>({...m,value:selected.flatMap(s=>s.sale_payments??[]).filter(p=>p.method===m.key&&p.status==="confirmed").reduce((sum,p)=>sum+Number(p.amount),0)}));
+ return <><div className="page-heading"><div><div className="eyebrow">ANÁLISE DO NEGÓCIO</div><h1>Relatórios</h1><p>Indicadores calculados com os registros reais do sistema.</p></div><div className="heading-actions"><label className="select-wrap"><CalendarDays size={16}/><select value={period} onChange={e=>setPeriod(e.target.value)}><option>Este mês</option><option>Esta semana</option><option>Hoje</option></select></label><button className="secondary-button" onClick={()=>window.print()}><Printer size={16}/> Imprimir</button></div></div>
+ {error&&<div className="auth-error">{error}</div>}
+ <div className="metrics-grid"><Metric icon={<Wallet/>} label="Faturamento" value={loading?"Carregando...":money(total)} change={period} detail="Vendas pagas no período"/><Metric icon={<ShoppingBag/>} label="Vendas pagas" value={String(selected.length)} change={period} detail="Transações concluídas"/><Metric icon={<ArrowDownRight/>} label="Custos dos itens" value={loading?"Carregando...":money(costTotal)} change={period} detail="Custo registrado na venda"/><Metric icon={<TrendingUp/>} label="Lucro bruto" value={loading?"Carregando...":money(grossProfit)} change={margin.toFixed(1)+"% margem"} detail="Faturamento menos custos dos itens"/><Metric icon={<CircleDollarSign/>} label="Ticket médio" value={money(average)} change="Média" detail="Faturamento dividido por vendas"/><Metric icon={<ClipboardList/>} label="Ordens cadastradas" value={String(orderCount)} change="Total histórico" detail="Ordens de serviço registradas"/></div>
+ <section className="panel" style={{padding:22,marginTop:18}}><div className="panel-heading"><div><h3>Faturamento, custos e lucro</h3><p>Lucro bruto = vendas pagas menos custo dos itens vendidos. Margem: {margin.toFixed(1)}%.</p></div></div><div className="report-grid"><div className="report-card"><span>Faturamento</span><strong>{money(total)}</strong><small>Vendas pagas</small></div><div className="report-card"><span>Custos</span><strong>{money(costTotal)}</strong><small>Itens vendidos</small></div><div className="report-card"><span>Lucro bruto</span><strong>{money(grossProfit)}</strong><small>{margin.toFixed(1)}% de margem</small></div>{methodTotals.map(m=><div className="report-card" key={m.key}><span>{m.label}</span><strong>{money(m.value)}</strong><small>{total>0?Math.round(m.value/total*100):0}% do faturamento</small></div>)}</div></section>
+ <section className="panel" style={{padding:22,marginTop:18}}><div className="panel-heading"><div><h3>Vendas recentes</h3><p>Histórico das vendas registradas.</p></div></div>{loading?<div className="empty-state">Carregando vendas...</div>:<div className="table-wrap"><table><thead><tr><th>VENDA</th><th>DATA</th><th>STATUS</th><th>VALOR</th></tr></thead><tbody>{sales.filter(s=>new Date(s.created_at)>=from).slice(0,30).map(s=><tr key={s.id}><td className="order-id">#{s.sale_number}</td><td>{new Date(s.created_at).toLocaleString("pt-BR")}</td><td>{s.status==="paid"?"Paga":s.status==="refunded"?"Estornada":s.status==="cancelled"?"Cancelada":"Pendente"}</td><td className="table-value">{money(Number(s.total))}</td></tr>)}</tbody></table>{sales.filter(s=>new Date(s.created_at)>=from).length===0&&<div className="empty-state">Nenhuma venda neste período.</div>}</div>}</section></>;
+}
+
+function GenericPage({ title, subtitle, icon, action, onAction, children }: { title: string; subtitle: string; icon: React.ReactNode; action?: string; onAction?: () => void; children: React.ReactNode }) {
+  return <><div className="page-heading"><div><div className="eyebrow">DOUTOR RESOLVE TECH</div><h1>{title}</h1><p>{subtitle}</p></div>{action&&<button className="primary-button" onClick={onAction}><Plus size={16}/>{action}</button>}</div><section className="panel generic-panel"><div className="generic-icon">{icon}</div>{children}</section></>;
+}
+
+function Status({ status }: { status: string }) {
+  const style = status === "Pronto" ? "green" : status === "Em andamento" ? "blue" : status === "Aguardando aprovação" ? "purple" : "amber";
+  return <span className={`status-pill ${style}`}><i/>{status}</span>;
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const isOrderDetail = title.startsWith("Ordem de serviço #");
+  return <div className={`modal-backdrop${isOrderDetail ? " modal-os-backdrop" : ""}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className={`modal${isOrderDetail ? " modal-os-full" : ""}`}><div className="modal-header"><h2>{title}</h2><div className="modal-header-actions">{isOrderDetail&&<button type="button" className="os-print-button" onClick={()=>window.print()}><Printer size={16}/> Imprimir OS</button>}<button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={19}/></button></div></div>{children}</div></div>;
+}
+
 export default App;
