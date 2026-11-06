@@ -163,7 +163,7 @@ function DashboardApp({ email }: { email: string }) {
         </div>
       </main>
 
-      {showNewSale && <Modal title="Iniciar nova venda" onClose={() => setShowNewSale(false)}><p className="modal-copy">O PDV completo será conectado na próxima etapa. Esta é uma prévia da ação.</p><div className="form-field"><label>Tipo de operação</label><select><option>Produto</option><option>Serviço gráfico — abrir OS</option><option>Manutenção — abrir OS</option><option>Impressão 3D — abrir OS</option></select></div><div className="modal-actions"><button className="secondary-button" onClick={() => setShowNewSale(false)}>Voltar</button><button className="primary-button" onClick={() => {setShowNewSale(false);setNotice("PDV demonstrativo: fluxo de venda será implementado na próxima etapa.");}}>Continuar <ChevronRight size={16}/></button></div></Modal>}
+      {showNewSale && <NewSaleModal onClose={() => setShowNewSale(false)} onSaved={() => { setShowNewSale(false); setNotice("Venda registrada no caixa aberto."); }} />}
       {showNewOrder && <NewServiceOrderModal onClose={() => setShowNewOrder(false)} onSaved={(number) => { setShowNewOrder(false); setNotice(`OS #${number} criada com sucesso.`); }} />}
     </div>
   );
@@ -220,6 +220,25 @@ function ProductionPage({ orders }: { orders: typeof initialOrders }) {
 
 
 
+
+function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
+ const [description,setDescription]=useState(""); const [qty,setQty]=useState("1"); const [price,setPrice]=useState(""); const [discount,setDiscount]=useState("0"); const [method,setMethod]=useState("cash"); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
+ const total=Math.max(0,Number(qty||0)*Number(price||0)-Number(discount||0));
+ async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;if(!description.trim()||Number(qty)<=0||Number(price)<=0||total<=0){setError("Confira os dados e os valores.");return;}setBusy(true);setError("");
+ const {data:reg}=await supabase.from("cash_registers").select("id").eq("status","open").maybeSingle();if(!reg){setError("Abra o caixa antes de registrar uma venda.");setBusy(false);return;}
+ const {data:user}=await supabase.auth.getUser();
+ const {data:sale,error:se}=await supabase.from("sales").insert({cash_register_id:reg.id,status:"paid",subtotal:Number(qty)*Number(price),discount:Number(discount||0),total,created_by:user.user?.id??null}).select("id").single();
+ if(se||!sale){setError("Não foi possível registrar a venda.");setBusy(false);return;}
+ const {error:ie}=await supabase.from("sale_items").insert({sale_id:sale.id,description:description.trim(),quantity:Number(qty),unit_price:Number(price),discount:Number(discount||0)});
+ if(ie){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar item."}).eq("id",sale.id);setError("Falha ao salvar o item.");setBusy(false);return;}
+ const {error:pe}=await supabase.from("sale_payments").insert({sale_id:sale.id,method,amount:total,status:"confirmed",paid_at:new Date().toISOString()});
+ if(pe){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar pagamento."}).eq("id",sale.id);setError("Falha ao salvar o pagamento.");setBusy(false);return;}setBusy(false);onSaved();}
+ return <Modal title="Registrar venda" onClose={onClose}><form onSubmit={save}><p className="modal-copy">A venda será vinculada ao caixa aberto.</p>
+ <label className="auth-field">Produto ou serviço<input required value={description} onChange={e=>setDescription(e.target.value)}/></label>
+ <div className="customer-form-grid"><label className="auth-field">Quantidade<input type="number" min="0.01" step="0.01" value={qty} onChange={e=>setQty(e.target.value)}/></label><label className="auth-field">Valor unitário (R$)<input type="number" min="0.01" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></label><label className="auth-field">Desconto (R$)<input type="number" min="0" step="0.01" value={discount} onChange={e=>setDiscount(e.target.value)}/></label><label className="auth-field">Pagamento<select value={method} onChange={e=>setMethod(e.target.value)}><option value="cash">Dinheiro</option><option value="pix">PIX</option><option value="debit_card">Débito</option><option value="credit_card">Crédito</option><option value="bank_transfer">Transferência</option><option value="other">Outro</option></select></label></div>
+ <div className="report-card"><span>Total</span><strong>{money(total)}</strong></div>{error&&<div className="auth-error">{error}</div>}
+ <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy}>{busy?"Salvando...":"Confirmar venda"}</button></div></form></Modal>;
+}
 type CashRegister = {
   id: string; register_number: number; status: "open" | "closed";
   opening_amount: number; closing_counted: number | null; closing_expected: number | null;
