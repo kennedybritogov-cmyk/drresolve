@@ -27,3 +27,15 @@
 .firearm-checklist strong{font-size:10px;color:#36373c}
 .firearm-checklist small{font-size:9px;color:#8a8c94;line-height:1.4}
 @media(max-width:600px){.firearm-form-section{padding:10px}.firearm-form-section .customer-form-grid{grid-template-columns:1fr}.firearm-form-section .customer-form-grid .wide{grid-column:auto}}
+
+
+@media print{
+  body *{visibility:hidden!important}
+  .modal-backdrop,.modal-backdrop *{visibility:visible!important}
+  .modal-backdrop{position:absolute!important;inset:0!important;background:#fff!important;padding:0!important;overflow:visible!important;display:block!important}
+  .modal{width:100%!important;max-width:none!important;max-height:none!important;overflow:visible!important;box-shadow:none!important;border:0!important;margin:0!important;padding:0!important}
+  .modal-header .icon-button,.modal-actions,.modal form button,.modal .secondary-button,.modal .primary-button{display:none!important}
+  .modal-header{border-bottom:1px solid #ccc!important}
+  .panel{break-inside:avoid}
+  @page{size:auto;margin:14mm}
+}
