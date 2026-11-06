@@ -233,7 +233,7 @@ function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder
  const revenueLabel=money(revenue);
  const dateLabel=now.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
  return <>
-  <div className="page-heading"><div><div className="eyebrow">{dateLabel.toUpperCase()}</div><h1>Bom dia! <span>Vamos resolver?</span></h1><p>Acompanhe o movimento e mantenha sua operação em dia.</p></div><div className="heading-actions"><button className="primary-button" onClick={()=>setShowQuickActions(true)}><Plus size={16}/> PDV / Vendas</button></div></div>
+  <div className="page-heading"><div><div className="eyebrow">{dateLabel.toUpperCase()}</div><h1>Bom dia! <span>Vamos resolver?</span></h1><p>Acompanhe o movimento e mantenha sua operação em dia.</p></div><div className="heading-actions"><button className="primary-button" onClick={()=>setShowNewSale(true)}><ShoppingBag size={16}/> Nova venda</button><button className="secondary-button" onClick={()=>setShowNewOrder(true)}><ClipboardList size={16}/> Nova ordem de serviço</button></div></div>
   <div className="section-toolbar"><div><h2>Visão geral</h2><span>Resumo do desempenho da sua loja</span></div><label className="select-wrap"><CalendarDays size={16}/><select value={period} onChange={e=>setPeriod(e.target.value)}><option>Este mês</option><option>Esta semana</option><option>Hoje</option></select><ChevronDown size={14}/></label></div>
   <div className="metrics-grid">
    <Metric icon={<Wallet/>} label="Faturamento" value={loading?"Carregando...":revenueLabel} change={period} detail="Vendas pagas, sem cancelamentos"/>
@@ -365,7 +365,7 @@ function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
    </div>)}
    <div className="report-card" style={{marginTop:14}}><span>Total da venda</span><strong>{money(total)}</strong><small>Subtotal {money(subtotal)} · Descontos {money(discountTotal)}</small></div>
   </div>
-  </div><aside className="sale-checkout"><div className="sale-total-card"><span>Total da venda</span><strong>{money(total)}</strong><small>{cart.length} item(ns) no carrinho</small></div><div className="panel sale-payment-panel">
+  </section><aside className="sale-checkout"><div className="sale-total-card"><span>Total da venda</span><strong>{money(total)}</strong><small>{cart.length} item(ns) no carrinho</small></div><div className="panel sale-payment-panel">
    <div className="panel-heading"><div><h3>Recebimento</h3><p>É possível dividir o valor entre vários meios.</p></div><button type="button" className="secondary-button" onClick={()=>setPayments(old=>[...old,{method:"pix",amount:""}])}><Plus size={15}/> Adicionar pagamento</button></div>
    {payments.map((p,index)=><div key={index} className="customer-form-grid" style={{borderTop:"1px solid var(--border,#e8eaf0)",paddingTop:10,marginTop:10}}>
     <label className="auth-field">Forma<select value={p.method} onChange={e=>updatePayment(index,{method:e.target.value})}><option value="cash">Dinheiro</option><option value="pix">PIX</option><option value="debit_card">Cartão de débito</option><option value="credit_card">Cartão de crédito</option><option value="bank_transfer">Transferência</option><option value="other">Outro</option></select></label>
