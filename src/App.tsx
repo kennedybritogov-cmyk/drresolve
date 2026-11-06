@@ -197,12 +197,12 @@ function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder
   orders: typeof initialOrders;
 }) {
  const [goalTab,setGoalTab]=useState("Diária");
- const [sales,setSales]=useState<{total:number;created_at:string;status:string}[]>([]);
+ const [sales,setSales]=useState<{id:string;total:number;created_at:string;status:string;sale_items:{quantity:number;unit_cost:number}[]}[]>([]);
  const [loading,setLoading]=useState(true);
  const [goalTargets,setGoalTargets]=useState({Diária:650,Semanal:3500,Mensal:14000});
  useEffect(()=>{let active=true;async function load(){if(!supabase){setLoading(false);return;}
   const [{data:saleData},{data:goalData}]=await Promise.all([
-   supabase.from("sales").select("total,created_at,status").in("status",["paid","refunded"]).order("created_at",{ascending:false}).limit(1500),
+   supabase.from("sales").select("id,total,created_at,status,sale_items(quantity,unit_cost)").in("status",["paid","refunded"]).order("created_at",{ascending:false}).limit(1500),
    supabase.from("revenue_goals").select("period_type,target_amount,starts_on,ends_on").order("starts_on",{ascending:false}).limit(100)
   ]);
   if(active){setSales((saleData??[]) as typeof sales);const today=new Date().toISOString().slice(0,10);
@@ -219,6 +219,8 @@ function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder
  const periodSales=sales.filter(s=>new Date(s.created_at)>=start&&new Date(s.created_at)<=end);
  const validSales=periodSales.filter(s=>s.status==="paid");
  const revenue=validSales.reduce((sum,s)=>sum+Number(s.total),0);
+ const costTotal=validSales.reduce((sum,s)=>sum+(s.sale_items??[]).reduce((line,item)=>line+Number(item.quantity)*Number(item.unit_cost),0),0);
+ const grossProfit=revenue-costTotal;
  const orderOpen=orders.filter(o=>!["Pronto","Concluído","Cancelado"].includes(o.status)).length;
  const graphicOrders=orders.filter(o=>o.category==="Serviços gráficos"&&!["Pronto","Concluído","Cancelado"].includes(o.status)).length;
  const goalStart=new Date(now);if(goalTab==="Diária")goalStart.setHours(0,0,0,0);else if(goalTab==="Semanal"){goalStart.setDate(goalStart.getDate()-((goalStart.getDay()+6)%7));goalStart.setHours(0,0,0,0);}else{goalStart.setDate(1);goalStart.setHours(0,0,0,0);}
@@ -232,6 +234,8 @@ function Dashboard({ period, setPeriod, setPage, setShowNewSale, setShowNewOrder
   <div className="section-toolbar"><div><h2>Visão geral</h2><span>Resumo do desempenho da sua loja</span></div><label className="select-wrap"><CalendarDays size={16}/><select value={period} onChange={e=>setPeriod(e.target.value)}><option>Este mês</option><option>Esta semana</option><option>Hoje</option></select><ChevronDown size={14}/></label></div>
   <div className="metrics-grid">
    <Metric icon={<Wallet/>} label="Faturamento" value={loading?"Carregando...":revenueLabel} change={period} detail="Vendas pagas, sem cancelamentos"/>
+   <Metric icon={<ArrowDownRight/>} label="Custos" value={loading?"Carregando...":money(costTotal)} change={period} detail="Custo dos itens vendidos"/>
+   <Metric icon={<TrendingUp/>} label="Lucro bruto" value={loading?"Carregando...":money(grossProfit)} change={period} detail="Faturamento menos custos"/>
    <Metric icon={<ShoppingBag/>} label="Vendas realizadas" value={loading?"…":String(validSales.length)} change={period} detail="Vendas confirmadas no período"/>
    <Metric icon={<ClipboardList/>} label="OS em aberto" value={String(orderOpen)} change="Em atendimento" detail="Ordens não concluídas ou canceladas"/>
    <Metric icon={<Printer/>} label="Produção gráfica" value={String(graphicOrders).padStart(2,"0")} change="Na fila" detail="Serviços gráficos pendentes"/>
@@ -289,17 +293,17 @@ function ProductionPage({ orders }: { orders: typeof initialOrders }) {
 
 
 function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
- type CatalogItem={id:string;name:string;description:string|null;category:string;unit_price:number};
+ type CatalogItem={id:string;name:string;description:string|null;category:string;unit_price:number;unit_cost:number};
  type CustomerOption={id:string;name:string;phone:string|null};
- type CartLine={catalog_item_id:string|null;description:string;quantity:string;unit_price:string;discount:string};
+ type CartLine={catalog_item_id:string|null;description:string;quantity:string;unit_price:string;unit_cost:number;discount:string};
  type PaymentLine={method:string;amount:string};
  const [items,setItems]=useState<CatalogItem[]>([]);
  const [customers,setCustomers]=useState<CustomerOption[]>([]);
  const [customerId,setCustomerId]=useState("");
- const [cart,setCart]=useState<CartLine[]>([{catalog_item_id:null,description:"",quantity:"1",unit_price:"",discount:"0"}]);
+ const [cart,setCart]=useState<CartLine[]>([{catalog_item_id:null,description:"",quantity:"1",unit_price:"",unit_cost:0,discount:"0"}]);
  const [payments,setPayments]=useState<PaymentLine[]>([{method:"cash",amount:""}]);
  const [busy,setBusy]=useState(false); const [error,setError]=useState("");
- useEffect(()=>{let active=true;async function load(){if(!supabase)return;const [{data},{data:customerData}]=await Promise.all([supabase.from("catalog_items").select("id,name,description,category,unit_price").eq("is_active",true).order("name"),supabase.from("customers").select("id,name,phone").eq("is_active",true).order("name")]);if(active){setItems((data??[]) as CatalogItem[]);setCustomers((customerData??[]) as CustomerOption[]);}}void load();return()=>{active=false;};},[]);
+ useEffect(()=>{let active=true;async function load(){if(!supabase)return;const [{data},{data:customerData}]=await Promise.all([supabase.from("catalog_items").select("id,name,description,category,unit_price,unit_cost").eq("is_active",true).order("name"),supabase.from("customers").select("id,name,phone").eq("is_active",true).order("name")]);if(active){setItems((data??[]) as CatalogItem[]);setCustomers((customerData??[]) as CustomerOption[]);}}void load();return()=>{active=false;};},[]);
  const lineTotal=(line:CartLine)=>Math.max(0,Number(line.quantity||0)*Number(line.unit_price||0)-Number(line.discount||0));
  const subtotal=cart.reduce((sum,line)=>sum+Number(line.quantity||0)*Number(line.unit_price||0),0);
  const discountTotal=cart.reduce((sum,line)=>sum+Number(line.discount||0),0);
@@ -307,7 +311,7 @@ function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
  const paid=payments.reduce((sum,p)=>sum+Number(p.amount||0),0);
  const remaining=total-paid;
  function updateLine(index:number,patch:Partial<CartLine>){setCart(old=>old.map((line,i)=>i===index?{...line,...patch}:line));}
- function selectCatalog(index:number,id:string){const item=items.find(x=>x.id===id);updateLine(index,{catalog_item_id:id||null,description:item?.name??"",unit_price:item?String(item.unit_price):""});}
+ function selectCatalog(index:number,id:string){const item=items.find(x=>x.id===id);updateLine(index,{catalog_item_id:id||null,description:item?.name??"",unit_price:item?String(item.unit_price):"",unit_cost:item?Number(item.unit_cost):0});}
  function updatePayment(index:number,patch:Partial<PaymentLine>){setPayments(old=>old.map((p,i)=>i===index?{...p,...patch}:p));}
  async function save(e:React.FormEvent<HTMLFormElement>){
   e.preventDefault();if(!supabase)return;
@@ -319,7 +323,7 @@ function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
   const {data:user}=await supabase.auth.getUser();
   const {data:sale,error:se}=await supabase.from("sales").insert({cash_register_id:reg.id,customer_id:customerId||null,status:"pending",subtotal,discount:discountTotal,total,created_by:user.user?.id??null}).select("id").single();
   if(se||!sale){setError("Não foi possível criar a venda: "+(se?.message??"erro desconhecido"));setBusy(false);return;}
-  const saleItems=cart.map(line=>({sale_id:sale.id,catalog_item_id:line.catalog_item_id,description:line.description.trim(),quantity:Number(line.quantity),unit_price:Number(line.unit_price),discount:Number(line.discount||0)}));
+  const saleItems=cart.map(line=>({sale_id:sale.id,catalog_item_id:line.catalog_item_id,description:line.description.trim(),quantity:Number(line.quantity),unit_price:Number(line.unit_price),unit_cost:Number(line.unit_cost||0),discount:Number(line.discount||0)}));
   const {error:ie}=await supabase.from("sale_items").insert(saleItems);
   if(ie){await supabase.from("sales").update({status:"cancelled",cancellation_reason:"Falha ao gravar itens da venda: "+ie.message}).eq("id",sale.id);setError("Não foi possível salvar os itens: "+ie.message);setBusy(false);return;}
   const salePayments=payments.map(p=>({sale_id:sale.id,method:p.method,amount:Number(p.amount),status:"confirmed",paid_at:new Date().toISOString()}));
@@ -334,7 +338,7 @@ function NewSaleModal({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}) {
   <p className="modal-copy">Monte o carrinho, escolha o cliente e distribua o pagamento. A venda será vinculada ao caixa aberto.</p>
   {customers.length>0&&<label className="auth-field">Cliente (opcional)<select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Venda sem cliente identificado</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}{c.phone?" — "+c.phone:""}</option>)}</select></label>}
   <div className="panel" style={{padding:14,margin:"14px 0"}}>
-   <div className="panel-heading"><div><h3>Itens da venda</h3><p>Adicione quantos produtos ou serviços precisar.</p></div><button type="button" className="secondary-button" onClick={()=>setCart(old=>[...old,{catalog_item_id:null,description:"",quantity:"1",unit_price:"",discount:"0"}])}><Plus size={15}/> Adicionar item</button></div>
+   <div className="panel-heading"><div><h3>Itens da venda</h3><p>Adicione quantos produtos ou serviços precisar.</p></div><button type="button" className="secondary-button" onClick={()=>setCart(old=>[...old,{catalog_item_id:null,description:"",quantity:"1",unit_price:"",unit_cost:0,discount:"0"}])}><Plus size={15}/> Adicionar item</button></div>
    {cart.map((line,index)=><div key={index} className="customer-form-grid" style={{borderTop:"1px solid var(--border,#e8eaf0)",paddingTop:12,marginTop:12}}>
     {items.length>0&&<label className="auth-field wide">Buscar no catálogo<select value={line.catalog_item_id??""} onChange={e=>selectCatalog(index,e.target.value)}><option value="">Item manual / serviço avulso</option>{items.map(item=><option key={item.id} value={item.id}>{item.name} — {money(Number(item.unit_price))}</option>)}</select></label>}
     <label className="auth-field wide">Descrição<input required value={line.description} onChange={e=>updateLine(index,{description:e.target.value,catalog_item_id:null})} placeholder="Produto ou serviço"/></label>
@@ -893,11 +897,11 @@ function CatalogPage(){
  async function save(e:React.FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;const value=Number(price);if(!name.trim()||!Number.isFinite(value)||value<0){setError("Informe nome e preço válido.");return;}setBusy(true);setError("");const costValue=Number(cost);if(!Number.isFinite(costValue)||costValue<0){setError("Informe um custo válido.");return;}const payload={name:name.trim(),description:description.trim()||null,category,unit_price:value,unit_cost:costValue,is_active:true,updated_at:new Date().toISOString()};const result=editing?await supabase.from("catalog_items").update(payload).eq("id",editing.id):await supabase.from("catalog_items").insert(payload);if(result.error)setError("Falha ao salvar: "+result.error.message);else{setShowForm(false);await load();}setBusy(false);}
  async function toggle(item:Item){if(!supabase)return;const {error:err}=await supabase.from("catalog_items").update({is_active:!item.is_active,updated_at:new Date().toISOString()}).eq("id",item.id);if(err)setError("Não foi possível alterar o item: "+err.message);else await load();}
  const filtered=items.filter(i=>[i.name,i.description??"",i.category].join(" ").toLowerCase().includes(search.toLowerCase()));
- const categoryLabel=(c:string)=>({product:"Produto",graphic:"Serviço gráfico",maintenance:"Manutenção",printing_3d:"Impressão 3D",other:"Outro"} as Record<string,string>)[c]??c;
+ const categoryLabel=(c:string)=>({product:"Produto",graphic:"Serviço gráfico",maintenance:"Manutenção",printing_3d:"Impressão 3D",firearm_process:"Processo de CR",other:"Outro"} as Record<string,string>)[c]??c;
  return <><div className="page-heading"><div><div className="eyebrow">CADASTRO COMERCIAL</div><h1>Produtos e <span>serviços</span></h1><p>Gerencie os itens disponíveis para selecionar no PDV.</p></div><button className="primary-button" onClick={()=>open()}><Plus size={16}/> Novo item</button></div>
  <section className="panel customers-panel"><div className="customers-toolbar"><div><strong>{items.filter(i=>i.is_active).length}</strong><span> itens ativos no catálogo</span></div><label className="search-box"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar produto ou serviço"/></label></div>
  {error&&<div className="auth-error">{error}</div>}{loading?<div className="empty-state">Carregando catálogo...</div>:<div className="table-wrap"><table><thead><tr><th>NOME</th><th>CATEGORIA</th><th>CUSTO</th><th>PREÇO</th><th>STATUS</th><th>AÇÕES</th></tr></thead><tbody>{filtered.map(item=><tr key={item.id}><td><strong>{item.name}</strong>{item.description&&<small>{item.description}</small>}</td><td>{categoryLabel(item.category)}</td><td>{money(Number(item.unit_cost))}</td><td className="table-value">{money(Number(item.unit_price))}</td><td>{item.is_active?"Ativo":"Inativo"}</td><td><div className="customer-actions"><button onClick={()=>open(item)}>Editar</button><button onClick={()=>void toggle(item)}>{item.is_active?"Desativar":"Ativar"}</button></div></td></tr>)}</tbody></table>{filtered.length===0&&<div className="empty-state">Nenhum item cadastrado. Adicione produtos e serviços para usá-los no PDV.</div>}</div>}</section>
- {showForm&&<Modal title={editing?"Editar item":"Novo produto ou serviço"} onClose={()=>setShowForm(false)}><form onSubmit={save}><label className="auth-field">Nome<input required maxLength={150} value={name} onChange={e=>setName(e.target.value)} placeholder="Ex.: Cartão de visita, manutenção"/></label><label className="auth-field">Descrição<textarea rows={2} value={description} onChange={e=>setDescription(e.target.value)}/></label><div className="customer-form-grid"><label className="auth-field">Categoria<select value={category} onChange={e=>setCategory(e.target.value)}><option value="product">Produto</option><option value="graphic">Serviço gráfico</option><option value="maintenance">Manutenção</option><option value="printing_3d">Impressão 3D</option><option value="other">Outro</option></select></label><label className="auth-field">Custo unitário (R$)<input required type="number" min="0" step="0.01" value={cost} onChange={e=>setCost(e.target.value)}/></label><label className="auth-field">Preço de venda (R$)<input required type="number" min="0" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={()=>setShowForm(false)}>Cancelar</button><button className="primary-button" disabled={busy}>{busy?"Salvando...":"Salvar item"}</button></div></form></Modal>}
+ {showForm&&<Modal title={editing?"Editar item":"Novo produto ou serviço"} onClose={()=>setShowForm(false)}><form onSubmit={save}><label className="auth-field">Nome<input required maxLength={150} value={name} onChange={e=>setName(e.target.value)} placeholder="Ex.: Cartão de visita, manutenção"/></label><label className="auth-field">Descrição<textarea rows={2} value={description} onChange={e=>setDescription(e.target.value)}/></label><div className="customer-form-grid"><label className="auth-field">Categoria<select value={category} onChange={e=>setCategory(e.target.value)}><option value="product">Produto</option><option value="graphic">Serviço gráfico</option><option value="maintenance">Manutenção</option><option value="printing_3d">Impressão 3D</option><option value="firearm_process">Processo de CR</option><option value="other">Outro</option></select></label><label className="auth-field">Custo unitário (R$)<input required type="number" min="0" step="0.01" value={cost} onChange={e=>setCost(e.target.value)}/></label><label className="auth-field">Preço de venda (R$)<input required type="number" min="0" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={()=>setShowForm(false)}>Cancelar</button><button className="primary-button" disabled={busy}>{busy?"Salvando...":"Salvar item"}</button></div></form></Modal>}
  </>;
 }
 
