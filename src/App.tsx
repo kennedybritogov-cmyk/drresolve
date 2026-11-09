@@ -6,7 +6,7 @@ import {
   CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList,
   Clock3, CreditCard, FileText, LayoutDashboard, Menu, Monitor,
   Package, Plus, Printer, Search, Settings, ShoppingBag, TrendingUp,
-  Users, Wallet, Wrench, X, Box, Target, CircleDollarSign, LogOut
+  Users, Wallet, Wrench, X, Box, Target, CircleDollarSign, LogOut, Trash2
 } from "lucide-react";
 
 type PageKey = "dashboard" | "pdv" | "ordens" | "producao" | "clientes" | "catalogo" | "relatorios" | "configuracoes";
